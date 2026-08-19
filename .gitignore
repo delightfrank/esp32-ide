@@ -1,0 +1,27 @@
+# 依赖
+app/node_modules/
+app/dist/
+
+# 环境
+.env
+*.log
+
+# 构建产物
+release/
+*.exe
+*.dmg
+*.AppImage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# PlatformIO 工具链
+toolchain/
+app/toolchain/

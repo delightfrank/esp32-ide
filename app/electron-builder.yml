@@ -1,0 +1,41 @@
+appId: com.esp32.ide
+productName: ESP32 IDE
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**
+  - src/main/**/*
+  - node_modules/**
+  - package.json
+
+extraResources:
+  - from: tools/
+    to: tools/
+
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ESP32 IDE
+  installerLanguages:
+    - 2052  # 简体中文
+    - 1033  # 英文
+  language: 2052

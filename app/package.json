@@ -1,0 +1,28 @@
+{
+  "name": "esp32-ide",
+  "version": "1.0.0",
+  "description": "ESP32 便捷 IDE - 面向新手的 ESP32 开发工具",
+  "main": "src/main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "start": "electron .",
+    "package": "electron-builder --config electron-builder.yml",
+    "package:offline": "node tools/package-offline.js"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "monaco-editor": "^0.52.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "serialport": "^13.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^9.1.2",
+    "electron": "^35.2.1",
+    "vite": "^6.3.5",
+    "wait-on": "^8.0.3"
+  }
+}
