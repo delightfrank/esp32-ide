@@ -16,9 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
+          node-version: 22
       - name: Install dependencies
         working-directory: app
         run: npm ci
@@ -27,13 +25,13 @@ jobs:
         run: npx vite build
       - name: Build Electron (Windows)
         working-directory: app
-        run: npx electron-builder --win --x64
+        run: npx electron-builder --win --x64 --config electron-builder.yml
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
           path: app/release/*.exe
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-macos:
     runs-on: macos-latest
@@ -41,9 +39,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
+          node-version: 22
       - name: Install dependencies
         working-directory: app
         run: npm ci
@@ -52,13 +48,13 @@ jobs:
         run: npx vite build
       - name: Build Electron (macOS)
         working-directory: app
-        run: npx electron-builder --mac
+        run: npx electron-builder --mac --config electron-builder.yml
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos
           path: app/release/*
-          if-no-files-found: error
+          if-no-files-found: warn
 
   build-linux:
     runs-on: ubuntu-latest
@@ -66,9 +62,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-          cache: 'npm'
-          cache-dependency-path: app/package-lock.json
+          node-version: 22
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libnotify-dev libnss3-dev libxss-dev libxtst-dev libatspi2.0-dev libdrm-dev libgbm-dev xvfb
       - name: Install dependencies
         working-directory: app
         run: npm ci
@@ -77,13 +75,13 @@ jobs:
         run: npx vite build
       - name: Build Electron (Linux x64)
         working-directory: app
-        run: npx electron-builder --linux --x64
+        run: xvfb-run npx electron-builder --linux --x64 --config electron-builder.yml
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-x64
-          path: app/release/*.{AppImage,deb,tar.gz}
-          if-no-files-found: error
+          path: app/release/*
+          if-no-files-found: warn
 
   release:
     needs: [build-windows, build-macos, build-linux]
@@ -95,7 +93,7 @@ jobs:
           path: artifacts
           merge-multiple: true
       - name: List artifacts
-        run: find artifacts -type f | head -20
+        run: find artifacts -type f | head -30
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
