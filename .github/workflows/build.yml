@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
       - name: Install dependencies
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
       - name: Install dependencies
@@ -50,17 +50,14 @@ jobs:
       - name: Build frontend
         working-directory: app
         run: npx vite build
-      - name: Build Electron (macOS arm64)
+      - name: Build Electron (macOS)
         working-directory: app
-        run: npx electron-builder --mac --arm64
-      - name: Build Electron (macOS x64)
-        working-directory: app
-        run: npx electron-builder --mac --x64
+        run: npx electron-builder --mac
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: app/release/*.{dmg,zip}
+          path: app/release/*
           if-no-files-found: error
 
   build-linux:
@@ -69,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: app/package-lock.json
       - name: Install dependencies
