@@ -29,7 +29,10 @@ let currentFilePath = null
 // 编辑器内容是否已修改
 let isModified = false
 // 当前项目路径（用于编译）
+// 项目路径（持久化到磁盘）
+const projectPathFile = path.join(app.getPath('userData'), '.last-project-path')
 let currentProjectPath = null
+try { currentProjectPath = fs.readFileSync(projectPathFile, 'utf-8').trim() || null } catch(e) {}
 
 // ═══════════════════════════════════════════════════
 // Bug 1: 自动保存辅助函数
@@ -404,6 +407,7 @@ ipcMain.handle('select-project-folder', async () => {
     return { success: false, canceled: true }
   }
   currentProjectPath = result.filePaths[0]
+  try { fs.writeFileSync(projectPathFile, currentProjectPath, 'utf-8') } catch(e) {}
   return { success: true, path: currentProjectPath }
 })
 
@@ -415,6 +419,7 @@ ipcMain.handle('get-project-path', () => {
 // 设置项目路径
 ipcMain.handle('set-project-path', (event, projectPath) => {
   currentProjectPath = projectPath
+  try { fs.writeFileSync(projectPathFile, projectPath || '', 'utf-8') } catch(e) {}
   return { success: true }
 })
 

@@ -54,6 +54,18 @@ function App() {
 
   // 项目状态
   const [projectPath, setProjectPath] = useState(null)
+
+  // 启动时加载上次的项目路径
+  useEffect(() => {
+    window.electronAPI?.getProjectPath().then((p) => {
+      if (p) {
+        setProjectPath(p)
+        projectPathRef.current = p
+      }
+    })
+  }, [])
+
+
   const [chipType, setChipType] = useState('esp32-s3')
   const [activeFilePath, setActiveFilePath] = useState(null)
   const [activeFileContent, setActiveFileContent] = useState(null)
