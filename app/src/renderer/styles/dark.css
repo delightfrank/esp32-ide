@@ -38,12 +38,6 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* 中间列（编辑器 + 底部面板） */
-.main-content > .editor-area,
-.main-content > .console-area {
-  display: none;
-}
-
 /* 编辑器+底部面板的容器 */
 .editor-console-wrapper {
   flex: 1;
