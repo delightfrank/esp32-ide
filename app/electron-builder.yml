@@ -51,7 +51,3 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: ESP32 IDE
-  installerLanguages:
-    - 2052
-    - 1033
-  language: 2052
