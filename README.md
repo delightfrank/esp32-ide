@@ -37,7 +37,7 @@
 > 不需要装任何东西，下载解压双击就能用。
 
 **Windows 用户：**
-1. 下载 [ESP32-IDE-full-win32-x64.zip](https://gitee.com/struggle2025/esp32-ide/releases)
+1. 下载 [ESP32-IDE-full-win32-x64.zip](https://github.com/delightfrank/esp32-ide/releases)
 2. 解压到任意目录（路径不要含中文/空格）
 3. 双击 `ESP32 IDE.exe`
 4. IDE 会自动检测工具链，首次可能需要等待初始化
@@ -62,7 +62,7 @@ cd ESP32-IDE-full-*
 
 ```bash
 # 1. 克隆仓库
-git clone https://gitee.com/struggle2025/esp32-ide.git
+git clone https://github.com/delightfrank/esp32-ide.git
 cd esp32-ide
 
 # 2. 安装依赖
@@ -185,7 +185,7 @@ pio pkg install -t toolchain-xtensa-esp32s3
 
 ## 🔗 相关链接
 
-- 仓库地址：https://gitee.com/struggle2025/esp32-ide
-- 问题反馈：https://gitee.com/struggle2025/esp32-ide/issues
+- 仓库地址：https://github.com/delightfrank/esp32-ide
+- 问题反馈：https://github.com/delightfrank/esp32-ide/issues
 - PlatformIO 官网：https://platformio.org
 - ESP32 官方文档：https://docs.espressif.com/projects/esp-idf/
