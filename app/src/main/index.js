@@ -374,12 +374,18 @@ function createMenu() {
       submenu: [
         {
           label: '首次启动向导',
-          click: () => {
+          click: async () => {
             if (mainWindow && !mainWindow.isDestroyed()) {
-              // 先检测环境，然后发送向导事件
-              checkEnvironment().then((env) => {
+              try {
+                // Show wizard immediately with loading state
+                mainWindow.webContents.send('show-setup-wizard', { loading: true })
+                const env = await checkEnvironment()
                 mainWindow.webContents.send('show-setup-wizard', env)
-              })
+              } catch (err) {
+                console.error('Setup wizard error:', err.message)
+                // Still show wizard even if env check fails
+                mainWindow.webContents.send('show-setup-wizard', { ready: false, error: err.message })
+              }
             }
           }
         },

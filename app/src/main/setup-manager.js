@@ -363,15 +363,25 @@ async function installPlatformio(mirror, mainWindowGetter) {
  */
 async function downloadToolchainFromGithub(toolName, pioPackagesDir, onProgress) {
   // GitHub 上的工具链 URL（esp-2021r2-patch5 版本，稳定版）
-  const toolchainUrls = {
-    'toolchain-xtensa-esp32': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
-    'toolchain-xtensa-esp32s3': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32s3-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
-    'toolchain-riscv32-esp': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/riscv32-esp-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip'
+  // Mirror list: try npmmirror first (fast in China), then GitHub as fallback
+  const toolchainMirrors = {
+    'toolchain-xtensa-esp32': [
+      'https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+      'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip'
+    ],
+    'toolchain-xtensa-esp32s3': [
+      'https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/xtensa-esp32s3-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+      'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32s3-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip'
+    ],
+    'toolchain-riscv32-esp': [
+      'https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/riscv32-esp-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+      'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/riscv32-esp-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip'
+    ]
   }
 
-  const url = toolchainUrls[toolName]
-  if (!url) {
-    throw new Error(`未找到 ${toolName} 的 GitHub 下载地址`)
+  const urls = toolchainMirrors[toolName]
+  if (!urls) {
+    throw new Error(`No download URL found for ${toolName}`)
   }
 
   const targetDir = path.join(pioPackagesDir, toolName)
@@ -381,38 +391,40 @@ async function downloadToolchainFromGithub(toolName, pioPackagesDir, onProgress)
     fs.mkdirSync(tmpDir, { recursive: true })
     const zipFile = path.join(tmpDir, `${toolName}.zip`)
 
-    onProgress(`从 GitHub 下载 ${toolName}...`)
-
-    // 下载 ZIP 文件
+    // Try each mirror URL in order (npmmirror first, GitHub fallback)
     const https = require('https')
     const http = require('http')
-
-    await new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http
-      protocol.get(url, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // 跟随重定向
-          protocol.get(res.headers.location, (res2) => {
-            const fileStream = fs.createWriteStream(zipFile)
-            res2.pipe(fileStream)
-            fileStream.on('finish', () => { fileStream.close(); resolve() })
-            fileStream.on('error', reject)
-          }).on('error', reject)
-          return
-        }
-
-        if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`))
-          return
-        }
-
-        const fileStream = fs.createWriteStream(zipFile)
-        res.pipe(fileStream)
-        fileStream.on('finish', () => { fileStream.close(); resolve() })
-        fileStream.on('error', reject)
-      }).on('error', reject)
-    })
-
+    let lastError = null
+    for (let i = 0; i < urls.length; i++) {
+      const tryUrl = urls[i]
+      const source = tryUrl.includes('npmmirror') ? 'npmmirror' : 'GitHub'
+      onProgress(`Trying ${source} (${i + 1}/${urls.length})...`)
+      try {
+        await new Promise((resolve, reject) => {
+          const protocol = tryUrl.startsWith('https') ? https : http
+          const doGet = (u) => {
+            protocol.get(u, (res) => {
+              if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                doGet(res.headers.location)
+                return
+              }
+              if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return }
+              const fileStream = fs.createWriteStream(zipFile)
+              res.pipe(fileStream)
+              fileStream.on('finish', () => { fileStream.close(); resolve() })
+              fileStream.on('error', reject)
+            }).on('error', reject)
+          }
+          doGet(tryUrl)
+        })
+        lastError = null
+        break
+      } catch (err) {
+        lastError = err
+        onProgress(`${source} failed: ${err.message}`)
+      }
+    }
+    if (lastError) throw lastError
     onProgress(`解压 ${toolName}...`)
 
     // 解压到目标目录
