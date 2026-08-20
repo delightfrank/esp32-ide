@@ -20,8 +20,8 @@ let mainWindow = null
 // ═══════════════════════════════════════════════════
 // Bug 1: 中文路径检测辅助函数
 // ═══════════════════════════════════════════════════
-function hasChineseOrSpace(str) {
-  return /[\u4e00-\u9fff]/.test(str) || /\s/.test(str)
+function hasChinese(str) {
+  return /[\u4e00-\u9fff]/.test(str)
 }
 
 // 当前打开的文件路径
@@ -424,6 +424,16 @@ ipcMain.handle('select-project-folder', async () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('file-tree-project-changed', currentProjectPath)
   }
+  // Warn if project path contains Chinese characters
+  if (hasChinese(currentProjectPath)) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'Path contains Chinese characters',
+      message: 'The selected path contains Chinese characters:',
+      detail: currentProjectPath + '\n\nPlatformIO may have issues. Consider using a pure English path.',
+      buttons: ['OK'],
+    })
+  }
   return { success: true, path: currentProjectPath }
 })
 
@@ -487,26 +497,21 @@ app.whenReady().then(() => {
   createMenu()
   createWindow()
 
-  // ─── Bug 1: 中文路径检测 ───
-  const cwd = process.cwd()
-  const appDir = __dirname
-  const badPaths = []
-  if (hasChineseOrSpace(cwd)) badPaths.push(`工作目录: ${cwd}`)
-  if (hasChineseOrSpace(appDir) && appDir !== cwd) badPaths.push(`应用目录: ${appDir}`)
-  if (badPaths.length > 0) {
+  // Check project path for Chinese characters on startup
+  if (currentProjectPath && hasChinese(currentProjectPath)) {
     dialog.showMessageBox(mainWindow, {
       type: 'warning',
-      title: '路径包含非 ASCII 字符或空格',
-      message: '检测到以下路径可能影响 PlatformIO 编译：',
-      detail: badPaths.join('\n') + '\n\n建议将项目路径改为纯英文无空格的路径。',
-      buttons: ['继续', '退出'],
+      title: 'Project path contains Chinese characters',
+      message: 'Your project path may cause issues with PlatformIO:',
+      detail: currentProjectPath + '\nConsider moving to a pure English path.',
+      buttons: ['Continue', 'Exit'],
       defaultId: 0
     }).then(({ response }) => {
       if (response === 1) app.quit()
     })
   }
 
-  // ─── Bug 2: 启动时检查崩溃恢复 ───
+  // Bug 2: crash recovery on startup
   const recovery = checkAutosaveRecovery()
   if (recovery.available && mainWindow && !mainWindow.isDestroyed()) {
     // 等窗口加载完成后通知渲染进程
