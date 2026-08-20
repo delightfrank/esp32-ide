@@ -25,3 +25,5 @@ Thumbs.db
 # PlatformIO 工具链
 toolchain/
 app/toolchain/
+app/extracted/
+app/extracted/

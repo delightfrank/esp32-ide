@@ -235,6 +235,19 @@ function App() {
     }
   }, [])
 
+  // 编译输出：appendOutput/clearOutput 必须先于所有引用它们的回调声明（否则 TDZ 崩溃）
+  const appendOutput = useCallback((text) => {
+    setOutputLines(prev => {
+      const next = [...prev, text]
+      // Bug 3: 截断到最大行数，避免大项目编译内存爆
+      return next.length > MAX_OUTPUT_LINES ? next.slice(-MAX_OUTPUT_LINES) : next
+    })
+  }, [])
+
+  const clearOutput = useCallback(() => {
+    setOutputLines([])
+  }, [])
+
   // 向导完成后重新检测环境
   const handleSetupComplete = useCallback(async () => {
     setShowSetupWizard(false)
@@ -389,18 +402,6 @@ function App() {
   // ═══════════════════════════════════════════════
   // 编译操作
   // ═══════════════════════════════════════════════
-
-  const appendOutput = useCallback((text) => {
-    setOutputLines(prev => {
-      const next = [...prev, text]
-      // Bug 3: 截断到最大行数，避免大项目编译内存爆
-      return next.length > MAX_OUTPUT_LINES ? next.slice(-MAX_OUTPUT_LINES) : next
-    })
-  }, [])
-
-  const clearOutput = useCallback(() => {
-    setOutputLines([])
-  }, [])
 
   const handleBuild = useCallback(async () => {
     const currentProjectPath = projectPathRef.current

@@ -9,6 +9,13 @@ import loader from '@monaco-editor/loader'
 // dist/vs is copied by tools/copy-monaco.js during npm run build
 loader.config({ paths: { vs: './vs' } })
 
+// file:// 协议下用相对 URL 创建 worker（消除 blob worker importScripts 失败警告）
+window.MonacoEnvironment = {
+  getWorkerUrl: function () {
+    return './vs/base/worker/workerMain.js'
+  }
+}
+
 // Monaco Editor options
 const editorOptions = {
   fontSize: 14,
