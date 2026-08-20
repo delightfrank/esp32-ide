@@ -88,6 +88,7 @@ function runPio(mainWindowGetter, command, options = {}) {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
         PYTHONLEGACYWINDOWSSTDIO: '1',
+        PYTHONHTTPSVERIFY: '0',
         PLATFORMIO_CORE_DIR: path.join(os.homedir(), '.platformio'),
       }
     })
