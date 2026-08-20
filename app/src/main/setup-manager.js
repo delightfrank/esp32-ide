@@ -176,8 +176,20 @@ async function checkEnvironment() {
     ready: false
   }
 
-  // 检测内置 Python
   const appDir = getEmbeddedDir()
+
+  // P3: 用异步 spawn 替代 execSync，不阻塞主进程
+  async function getVersion(cmd, args, timeout = 5000) {
+    return new Promise((resolve) => {
+      const proc = spawn(cmd, args, { timeout, stdio: ['pipe', 'pipe', 'pipe'] })
+      let stdout = ''
+      proc.stdout.on('data', (d) => { stdout += d.toString() })
+      proc.on('close', () => resolve(stdout.trim()))
+      proc.on('error', () => resolve(null))
+    })
+  }
+
+  // 检测内置 Python
   const embeddedPython = process.platform === 'win32'
     ? path.join(appDir, 'python', 'python.exe')
     : path.join(appDir, 'python', 'bin', 'python3')
@@ -186,20 +198,19 @@ async function checkEnvironment() {
     result.embedded.python = true
     result.python.available = true
     result.python.path = embeddedPython
-    try {
-      const ver = execSync(`"${embeddedPython}" --version`, { encoding: 'utf8', timeout: 5000 }).trim()
-      result.python.version = ver
-    } catch { /* 忽略 */ }
+    const ver = await getVersion(embeddedPython, ['--version'])
+    if (ver) result.python.version = ver
   }
 
   // 检测系统 Python
   if (!result.python.available) {
-    try {
-      const ver = execSync('python3 --version || python --version', { encoding: 'utf8', timeout: 5000 }).trim()
+    const py3 = process.platform === 'win32' ? 'python' : 'python3'
+    const ver = await getVersion(py3, ['--version'])
+    if (ver) {
       result.python.available = true
       result.python.version = ver
-      result.python.path = process.platform === 'win32' ? 'python' : 'python3'
-    } catch { /* 忽略 */ }
+      result.python.path = py3
+    }
   }
 
   // 检测内置 PlatformIO
@@ -211,20 +222,18 @@ async function checkEnvironment() {
     result.embedded.platformio = true
     result.platformio.available = true
     result.platformio.path = embeddedPio
-    try {
-      const ver = execSync(`"${embeddedPio}" --version`, { encoding: 'utf8', timeout: 5000 }).trim()
-      result.platformio.version = ver
-    } catch { /* 忽略 */ }
+    const ver = await getVersion(embeddedPio, ['--version'])
+    if (ver) result.platformio.version = ver
   }
 
   // 检测系统 PlatformIO
   if (!result.platformio.available) {
-    try {
-      const ver = execSync('pio --version', { encoding: 'utf8', timeout: 5000 }).trim()
+    const ver = await getVersion('pio', ['--version'])
+    if (ver) {
       result.platformio.available = true
       result.platformio.version = ver
       result.platformio.path = 'pio'
-    } catch { /* 忽略 */ }
+    }
   }
 
   // 检测工具链

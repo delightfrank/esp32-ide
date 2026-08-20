@@ -542,31 +542,42 @@ app.whenReady().then(() => {
     }
   })
 
-  // ─── Bug 1: 自动保存 IPC ───
+  // ─── Bug 1: 自动保存 IPC（P3: 加防抖，避免频繁写盘）───
   ipcMain.handle('auto-save', async (event, data) => {
     return await doAutoSave(data.content)
   })
 
+  // P3: 自动保存防抖定时器
+  let autoSaveDebounceTimer = null
+
   // 渲染进程请求自动保存（定时器触发）
-  ipcMain.on('request-auto-save', async () => {
+  ipcMain.on('request-auto-save', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return
-    try {
-      const contentPromise = new Promise((resolve) => {
-        ipcMain.once('get-editor-content-response', (event, data) => {
-          resolve(data)
-        })
-        mainWindow.webContents.send('get-editor-content')
-      })
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('IPC timeout')), 5000)
-      })
-      const result = await Promise.race([contentPromise, timeoutPromise])
-      if (result?.content) {
-        await doAutoSave(result.content)
-      }
-    } catch (err) {
-      console.error('自动保存失败:', err.message)
+    // P3: 防抖 5 秒，避免 30 秒定时器 + 用户手动保存同时触发竞态
+    if (autoSaveDebounceTimer) {
+      clearTimeout(autoSaveDebounceTimer)
     }
+    autoSaveDebounceTimer = setTimeout(async () => {
+      autoSaveDebounceTimer = null
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      try {
+        const contentPromise = new Promise((resolve) => {
+          ipcMain.once('get-editor-content-response', (event, data) => {
+            resolve(data)
+          })
+          mainWindow.webContents.send('get-editor-content')
+        })
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('IPC timeout')), 5000)
+        })
+        const result = await Promise.race([contentPromise, timeoutPromise])
+        if (result?.content) {
+          await doAutoSave(result.content)
+        }
+      } catch (err) {
+        console.error('自动保存失败:', err.message)
+      }
+    }, 5000) // 防抖 5 秒
   })
 
   // ─── Bug 2: 崩溃恢复 ───
