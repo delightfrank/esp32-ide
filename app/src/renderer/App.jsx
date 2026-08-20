@@ -121,7 +121,9 @@ function App() {
   }, [])
 
   const handleNewFile = useCallback(() => {
-    setCode('')
+    setCode('// 新文件\n')
+    setActiveFilePath(null)
+    setActiveFileContent(null)
     setIsModified(false)
     window.electronAPI?.reportModified(false)
   }, [])

@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileRead: (filePath) => ipcRenderer.invoke('file-read', filePath),
   // Bug 3: fileWrite 已移除 — 文件保存只通过 save-file IPC，防止渲染进程任意写文件
   fileStat: (filePath) => ipcRenderer.invoke('file-stat', filePath),
+  // M1: 同步当前文件路径到主进程
+  syncCurrentFilePath: (filePath) => ipcRenderer.send('sync-current-file-path', filePath),
 
   // ─── 文件树事件监听 ───
   onFileTreeChanged: (callback) => {

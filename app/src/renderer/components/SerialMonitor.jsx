@@ -52,7 +52,11 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
     // 接收串口数据
     window.electronAPI?.onSerialMonitorData((data) => {
       const bytes = new Uint8Array(data.data)
-      setOutputLines(prev => [...prev, { bytes, timestamp: data.timestamp }])
+      setOutputLines(prev => {
+        const next = [...prev, { bytes, timestamp: data.timestamp }]
+        // M4: 串口输出截断到 2000 行，避免内存暴涨
+        return next.length > 2000 ? next.slice(-2000) : next
+      })
     })
 
     // 连接状态变化
@@ -116,6 +120,7 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
       const result = await window.electronAPI?.serialMonitorConnect(port, baud)
       if (result?.success) {
         setConnected(true)
+        setConnecting(false)
         setLastPort(port)
         setLastBaud(baud)
         onStatusChange?.(true)

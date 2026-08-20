@@ -397,6 +397,13 @@ ipcMain.on('file-save-notify', () => {
   }
 })
 
+// M1: 文件树打开文件时同步 currentFilePath，避免保存时弹另存为
+ipcMain.on('sync-current-file-path', (event, filePath) => {
+  currentFilePath = filePath
+  isModified = false
+  updateTitle()
+})
+
 // 选择项目文件夹
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {

@@ -8,7 +8,7 @@
     "build": "vite build",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
-    "package": "electron-builder --config electron-builder.yml",
+    "package": "npm run build && electron-builder --config electron-builder.yml",
     "package:offline": "node tools/package-offline.js"
   },
   "dependencies": {

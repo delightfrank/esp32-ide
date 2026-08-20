@@ -307,6 +307,8 @@ function FileTree({ projectPath, onFileOpen, activeFilePath }) {
     try {
       const result = await window.electronAPI?.fileRead(item.path)
       if (result?.success) {
+        // M1: 同步文件路径到主进程，避免保存时弹另存为
+        window.electronAPI?.syncCurrentFilePath?.(item.path)
         onFileOpen?.(item.path, result.content)
       }
     } catch (err) {

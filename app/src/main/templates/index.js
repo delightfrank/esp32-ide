@@ -314,7 +314,19 @@ function createProject(projectDir, projectName, templateId, chipType) {
     return { success: false, error: `未知模板: ${templateId}` }
   }
 
+  // H3: 校验项目名，防止目录穿越
+  if (!/^[A-Za-z0-9_-]+$/.test(projectName)) {
+    return { success: false, error: '项目名只能包含英文字母、数字、下划线和连字符' }
+  }
+
   const projectPath = path.join(projectDir, projectName)
+
+  // 确保解析后仍在 projectDir 内
+  const resolved = path.resolve(projectPath)
+  const base = path.resolve(projectDir)
+  if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+    return { success: false, error: '路径超出项目目录范围' }
+  }
 
   // 检查目录是否已存在
   if (fs.existsSync(projectPath)) {
