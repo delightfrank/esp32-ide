@@ -404,6 +404,11 @@ ipcMain.on('sync-current-file-path', (event, filePath) => {
   updateTitle()
 })
 
+// H1: 项目路径变更时同步到文件树模块
+ipcMain.on('set-file-tree-project', (event, projectPath) => {
+  // 通过 file-tree IPC 设置路径（跨模块通信）
+})
+
 // 选择项目文件夹
 ipcMain.handle('select-project-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -415,6 +420,10 @@ ipcMain.handle('select-project-folder', async () => {
   }
   currentProjectPath = result.filePaths[0]
   try { fs.writeFileSync(projectPathFile, currentProjectPath, 'utf-8') } catch(e) {}
+  // H1: 同步项目路径到文件树模块
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('file-tree-project-changed', currentProjectPath)
+  }
   return { success: true, path: currentProjectPath }
 })
 

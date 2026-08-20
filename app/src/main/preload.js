@@ -106,6 +106,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fileStat: (filePath) => ipcRenderer.invoke('file-stat', filePath),
   // M1: 同步当前文件路径到主进程
   syncCurrentFilePath: (filePath) => ipcRenderer.send('sync-current-file-path', filePath),
+  // H1: 设置文件树项目路径（用于路径校验）
+  fileTreeSetProject: (projectPath) => ipcRenderer.invoke('file-tree-set-project', projectPath),
+  // H1: 监听项目路径变更
+  onFileTreeProjectChanged: (callback) => {
+    ipcRenderer.on('file-tree-project-changed', (event, projectPath) => callback(projectPath))
+  },
 
   // ─── 文件树事件监听 ───
   onFileTreeChanged: (callback) => {

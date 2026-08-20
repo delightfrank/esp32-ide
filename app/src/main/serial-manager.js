@@ -42,9 +42,17 @@ function monitorConnect(portPath, baudRate) {
     return { success: false, error: '串口已被占用，请先断开' }
   }
 
+  // H4: 校验端口是否存在（防止打开任意文件）
   return new Promise((resolve) => {
-    try {
-      const port = new SerialPort({
+    SerialPort.list().then((ports) => {
+      const exists = ports.some(p => p.path === portPath)
+      if (!exists) {
+        resolve({ success: false, error: '串口设备不存在: ' + portPath })
+        return
+      }
+
+      try {
+        const port = new SerialPort({
         path: portPath,
         baudRate: baudRate || 115200,
         autoOpen: false

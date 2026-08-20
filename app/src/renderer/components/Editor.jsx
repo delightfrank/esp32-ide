@@ -4,6 +4,37 @@
  */
 import React, { useEffect, useRef } from 'react'
 import Editor from '@monaco-editor/react'
+import loader from '@monaco-editor/loader'
+import * as monaco from 'monaco-editor'
+
+// 强制使用本地 monaco 包，不走 CDN（国内离线可用）
+loader.config({ monaco })
+
+// Monaco worker 配置（Vite 构建需要）
+window.MonacoEnvironment = {
+  getWorker: function (_workerId, label) {
+    const getWorkerModule = (moduleUrl) => {
+      return new Worker(new URL(moduleUrl, import.meta.url), { type: 'module' })
+    }
+    switch (label) {
+      case 'json':
+        return getWorkerModule('monaco-editor/esm/vs/language/json/json.worker.js')
+      case 'css':
+      case 'scss':
+      case 'less':
+        return getWorkerModule('monaco-editor/esm/vs/language/css/css.worker.js')
+      case 'html':
+      case 'handlebars':
+      case 'razor':
+        return getWorkerModule('monaco-editor/esm/vs/language/html/html.worker.js')
+      case 'typescript':
+      case 'javascript':
+        return getWorkerModule('monaco-editor/esm/vs/language/typescript/ts.worker.js')
+      default:
+        return getWorkerModule('monaco-editor/esm/vs/editor/editor.worker.js')
+    }
+  }
+}
 
 // Monaco Editor 配置
 const editorOptions = {

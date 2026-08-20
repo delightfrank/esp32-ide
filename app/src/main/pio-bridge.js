@@ -82,7 +82,6 @@ function runPio(mainWindowGetter, command, options = {}) {
 
     const pio = spawn(getPioCommand(), args, {
       cwd,
-      shell: true,
       env: {
         ...process.env,
         PLATFORMIO_CORE_DIR: path.join(os.homedir(), '.platformio'),
@@ -94,6 +93,7 @@ function runPio(mainWindowGetter, command, options = {}) {
     // 编译超时保护：10 分钟后强制终止
     buildTimeoutTimer = setTimeout(() => {
       if (activeProcess) {
+        timedOut = true
         activeProcess.kill('SIGTERM')
         isBuilding = false
         activeProcess = null
@@ -108,11 +108,13 @@ function runPio(mainWindowGetter, command, options = {}) {
 
     let stdout = ''
     let stderr = ''
+    let timedOut = false  // M5: 超时标记，防止 close 重复报错
+    const MAX_OUTPUT_BYTES = 2 * 1024 * 1024  // M5: 输出截断到 2MB
 
     // 实时推送标准输出
     pio.stdout.on('data', (data) => {
       const text = data.toString()
-      stdout += text
+      if (stdout.length < MAX_OUTPUT_BYTES) stdout += text
       const mwOut = resolveWindow(mainWindowGetter)
       if (mwOut && !mwOut.isDestroyed()) {
         mwOut.webContents.send('pio-output', { type: 'stdout', data: text })
@@ -122,7 +124,7 @@ function runPio(mainWindowGetter, command, options = {}) {
     // 实时推送标准错误
     pio.stderr.on('data', (data) => {
       const text = data.toString()
-      stderr += text
+      if (stderr.length < MAX_OUTPUT_BYTES) stderr += text
       const mwErr = resolveWindow(mainWindowGetter)
       if (mwErr && !mwErr.isDestroyed()) {
         mwErr.webContents.send('pio-output', { type: 'stderr', data: text })
@@ -137,6 +139,12 @@ function runPio(mainWindowGetter, command, options = {}) {
       if (buildTimeoutTimer) {
         clearTimeout(buildTimeoutTimer)
         buildTimeoutTimer = null
+      }
+
+      // M5: 超时已发过 error，跳过 close 的重复报错
+      if (timedOut) {
+        resolve({ success: false, code, stdout, stderr })
+        return
       }
 
       const success = code === 0

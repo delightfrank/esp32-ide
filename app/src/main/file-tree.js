@@ -11,6 +11,21 @@ const { EventEmitter } = require('events')
 const watchers = new Map()
 const fileTreeEmitter = new EventEmitter()
 
+// H1: 当前项目路径，用于路径校验
+let currentProjectPath = null
+
+// H1: 路径安全校验 — 确保操作在项目目录内
+function isPathSafe(filePath) {
+  if (!currentProjectPath) return true // 无项目时不限制（菜单打开等场景）
+  try {
+    const resolved = path.resolve(filePath)
+    const base = path.resolve(currentProjectPath)
+    return resolved === base || resolved.startsWith(base + path.sep)
+  } catch (e) {
+    return false
+  }
+}
+
 // Bug 4: 排除的目录列表（构建产物/缓存）
 const EXCLUDED_DIRS = new Set([
   '.pio', '.pioenvs', '.piolibdeps',
@@ -273,8 +288,18 @@ function registerFileTreeIpc(ipcMain, getWindow) {
     return { success: true }
   })
 
+  // H1: 设置项目路径（用于路径校验）
+  ipcMain.handle('file-tree-set-project', (event, projectPath) => {
+    currentProjectPath = projectPath
+    return { success: true }
+  })
+
   // 删除文件/目录（带确认对话框）
   ipcMain.handle('file-delete', async (event, filePath) => {
+    // H1: 路径校验
+    if (!isPathSafe(filePath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     const win = getWindow()
     const itemName = path.basename(filePath)
 
@@ -303,6 +328,10 @@ function registerFileTreeIpc(ipcMain, getWindow) {
 
   // 重命名
   ipcMain.handle('file-rename', (event, oldPath, newPath) => {
+    // H1: 路径校验
+    if (!isPathSafe(oldPath) || !isPathSafe(newPath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
       renameItem(oldPath, newPath)
       return { success: true }
@@ -313,6 +342,10 @@ function registerFileTreeIpc(ipcMain, getWindow) {
 
   // 创建目录
   ipcMain.handle('file-mkdir', (event, dirPath) => {
+    // H1: 路径校验
+    if (!isPathSafe(dirPath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
       createDirectory(dirPath)
       return { success: true }
@@ -323,6 +356,10 @@ function registerFileTreeIpc(ipcMain, getWindow) {
 
   // 创建文件
   ipcMain.handle('file-create', (event, filePath) => {
+    // H1: 路径校验
+    if (!isPathSafe(filePath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
       createFile(filePath)
       return { success: true }
@@ -331,11 +368,30 @@ function registerFileTreeIpc(ipcMain, getWindow) {
     }
   })
 
-  // 读取文件内容
+  // 读取文件内容（M7: GBK 编码回退）
   ipcMain.handle('file-read', (event, filePath) => {
+    // H1: 路径校验
+    if (!isPathSafe(filePath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
-      const content = fs.readFileSync(filePath, 'utf-8')
-      return { success: true, content }
+      let content
+      let encodingWarning = null
+      try {
+        content = fs.readFileSync(filePath, 'utf-8')
+        if (content.includes('\uFFFD')) {
+          throw new Error('UTF-8 decode produced replacement characters')
+        }
+      } catch (decodeErr) {
+        // M7: 回退到 latin1 读取并检测中文字符
+        const raw = fs.readFileSync(filePath, 'latin1')
+        const hasChinese = /[\u4e00-\u9fff]/.test(raw)
+        if (hasChinese) {
+          encodingWarning = '该文件可能使用 GBK/GB2312 编码。当前以 latin1 方式读取，中文字符可能显示异常。建议转换为 UTF-8。'
+        }
+        content = raw
+      }
+      return { success: true, content, encodingWarning }
     } catch (err) {
       return { success: false, error: err.message }
     }
@@ -343,6 +399,10 @@ function registerFileTreeIpc(ipcMain, getWindow) {
 
   // 保存文件内容
   ipcMain.handle('file-write', (event, filePath, content) => {
+    // H1: 路径校验
+    if (!isPathSafe(filePath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
       fs.writeFileSync(filePath, content, 'utf-8')
       return { success: true }
@@ -353,6 +413,10 @@ function registerFileTreeIpc(ipcMain, getWindow) {
 
   // 获取文件信息（判断是文件还是目录）
   ipcMain.handle('file-stat', (event, filePath) => {
+    // H1: 路径校验
+    if (!isPathSafe(filePath)) {
+      return { success: false, error: '路径超出项目目录范围' }
+    }
     try {
       const stat = fs.statSync(filePath)
       return {

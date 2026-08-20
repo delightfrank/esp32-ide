@@ -48,19 +48,29 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
   // IPC 监听
   // ═══════════════════════════════════════════════
 
+  // M3: IPC 监听器用空依赖注册一次，通过 ref 获取最新参数避免重复注册
+  const lastPortRef = useRef(lastPort)
+  const lastBaudRef = useRef(lastBaud)
+  const baudRateRef = useRef(baudRate)
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => { lastPortRef.current = lastPort }, [lastPort])
+  useEffect(() => { lastBaudRef.current = lastBaud }, [lastBaud])
+  useEffect(() => { baudRateRef.current = baudRate }, [baudRate])
+  useEffect(() => { onStatusChangeRef.current = onStatusChange }, [onStatusChange])
+
   useEffect(() => {
     // 接收串口数据
-    window.electronAPI?.onSerialMonitorData((data) => {
+    const handleData = (data) => {
       const bytes = new Uint8Array(data.data)
       setOutputLines(prev => {
         const next = [...prev, { bytes, timestamp: data.timestamp }]
         // M4: 串口输出截断到 2000 行，避免内存暴涨
         return next.length > 2000 ? next.slice(-2000) : next
       })
-    })
+    }
 
     // 连接状态变化
-    window.electronAPI?.onSerialMonitorStatus((data) => {
+    const handleStatus = (data) => {
       setConnected(data.connected)
       setConnecting(false)
       if (data.error) {
@@ -70,16 +80,27 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
           isError: true
         }])
       }
-      onStatusChange?.(data.connected)
-    })
+      onStatusChangeRef.current?.(data.connected)
+    }
 
     // 烧录后重连请求
-    window.electronAPI?.onSerialMonitorReconnectRequest(() => {
-      if (lastPort) {
-        handleConnectInternal(lastPort, lastBaud || baudRate)
+    const handleReconnect = () => {
+      if (lastPortRef.current) {
+        handleConnectInternal(lastPortRef.current, lastBaudRef.current || baudRateRef.current)
       }
-    })
-  }, [lastPort, lastBaud, baudRate, onStatusChange])
+    }
+
+    window.electronAPI?.onSerialMonitorData(handleData)
+    window.electronAPI?.onSerialMonitorStatus(handleStatus)
+    window.electronAPI?.onSerialMonitorReconnectRequest(handleReconnect)
+
+    return () => {
+      // M3: 清理旧监听器
+      window.electronAPI?.removeSerialMonitorDataListener?.(handleData)
+      window.electronAPI?.removeSerialMonitorStatusListener?.(handleStatus)
+      window.electronAPI?.removeSerialMonitorReconnectListener?.(handleReconnect)
+    }
+  }, []) // 空依赖，只注册一次
 
   // ═══════════════════════════════════════════════
   // 自动滚动
