@@ -311,14 +311,28 @@ function SetupWizard({ onComplete, onClose }) {
 
       {installProgress.error && (
         <div className="install-error">
-          ❌ {installProgress.error}
+          <p>Installation failed: {installProgress.error}</p>
+          <div className="manual-install-guide">
+            <h3>Manual Installation Guide</h3>
+            <ol>
+              <li><strong>Python 3.8+</strong>: Download from python.org/downloads</li>
+              <li><strong>PlatformIO</strong>: Run <code>pip install platformio</code></li>
+              <li><strong>ESP32 Toolchain</strong>: Auto-downloaded on first compile</li>
+            </ol>
+            <p>After manual install, restart ESP32 IDE.</p>
+          </div>
+          <button className="wizard-btn" onClick={() => setStep(STEPS.MIRROR_SELECT)}>Try Again</button>
         </div>
       )}
 
+      {!installProgress.error && (
+        <div className="install-tips">
       <div className="install-tips">
         <p>💡 安装过程中请保持网络连接</p>
         <p>⏱️ 首次安装可能需要几分钟</p>
       </div>
+        </div>
+      )}
     </div>
   )
 
