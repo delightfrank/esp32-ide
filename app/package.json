@@ -5,7 +5,7 @@
   "main": "src/main/index.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node tools/copy-monaco.js",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "start": "electron .",
     "package": "npm run build && electron-builder --config electron-builder.yml",
