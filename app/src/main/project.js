@@ -113,12 +113,23 @@ function generatePlatformioIniContent(projectPath, chipType = 'esp32-s3') {
     throw new Error(`不支持的芯片类型: ${chipType}。支持的类型: ${Object.keys(SUPPORTED_CHIPS).join(', ')}`)
   }
 
+  // Chinese mirror toolchain URLs (npmmirror, fast in China)
+  const mirrorToolchains = {
+    'esp32-s3': 'toolchain-xtensa-esp32s3@https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/xtensa-esp32s3-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+    'esp32': 'toolchain-xtensa-esp32@https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+    'esp32-c3': 'toolchain-riscv32-esp@https://registry.npmmirror.com/-/binary/espressif-dl/toolchains/riscv32-esp-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+  }
+  const toolchainMirror = mirrorToolchains[chipType] || ''
+
   const iniContent = `; PlatformIO 项目配置文件
 ;
 ; ESP32 IDE 自动生成
 ; 芯片: ${chip.name} (${chip.description})
 ; 生成时间: ${new Date().toISOString()}
 ;
+
+[platformio]
+${toolchainMirror ? 'platform_packages =\n    ' + toolchainMirror : ''}
 
 [env:${chip.board}]
 platform = ${chip.platform}
