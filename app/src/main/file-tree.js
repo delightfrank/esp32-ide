@@ -14,12 +14,17 @@ const fileTreeEmitter = new EventEmitter()
 // H1: 当前项目路径，用于路径校验
 let currentProjectPath = null
 
-// H1: 路径安全校验 — 确保操作在项目目录内
+// H1: 路径安全校验 — 确保操作在项目目录内（Windows 大小写不敏感）
 function isPathSafe(filePath) {
   if (!currentProjectPath) return true // 无项目时不限制（菜单打开等场景）
   try {
     const resolved = path.resolve(filePath)
     const base = path.resolve(currentProjectPath)
+    if (process.platform === 'win32') {
+      const r = resolved.toLowerCase()
+      const b = base.toLowerCase()
+      return r === b || r.startsWith(b + path.sep)
+    }
     return resolved === base || resolved.startsWith(base + path.sep)
   } catch (e) {
     return false

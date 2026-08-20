@@ -133,10 +133,13 @@ function SetupWizard({ onComplete, onClose }) {
         setInstallResult({ success: true, environment: result.environment })
         setStep(STEPS.COMPLETE)
       } else {
+        // 安装失败也进入完成页，展示失败原因和重试按钮（否则会卡在安装页）
         setInstallResult({ success: false, error: result?.error })
+        setStep(STEPS.COMPLETE)
       }
     } catch (err) {
       setInstallResult({ success: false, error: err.message })
+      setStep(STEPS.COMPLETE)
     }
   }, [selectedMirror])
 
@@ -311,34 +314,24 @@ function SetupWizard({ onComplete, onClose }) {
 
       {installProgress.error && (
         <div className="install-error">
-          <p>Installation failed: {installProgress.error}</p>
-          <div className="manual-install-guide">
-            <h3>Manual Installation Guide</h3>
-            <ol>
-              <li><strong>Python 3.8+</strong>: Download from python.org/downloads</li>
-              <li><strong>PlatformIO</strong>: Run <code>pip install platformio</code></li>
-              <li><strong>ESP32 Toolchain</strong>: Auto-downloaded on first compile</li>
-            </ol>
-            <p>After manual install, restart ESP32 IDE.</p>
-          </div>
-          <button className="wizard-btn" onClick={() => setStep(STEPS.MIRROR_SELECT)}>Try Again</button>
+          ❌ {installProgress.error}
         </div>
       )}
 
-      {!installProgress.error && (
-        <div className="install-tips">
       <div className="install-tips">
         <p>💡 安装过程中请保持网络连接</p>
         <p>⏱️ 首次安装可能需要几分钟</p>
       </div>
-        </div>
-      )}
     </div>
   )
 
   // ── 渲染完成页 ──
 
-  const renderComplete = () => (
+  const renderComplete = () => {
+    // 安装后重新检测的环境（比进入向导时的 envResult 更新）
+    const finalEnv = installResult?.environment || envResult
+
+    return (
     <div className="wizard-page wizard-complete">
       <div className="wizard-hero">
         <div className="wizard-logo success">✓</div>
@@ -349,6 +342,11 @@ function SetupWizard({ onComplete, onClose }) {
         <div className="complete-warning">
           <p>⚠️ 部分组件安装失败，您可能需要手动安装</p>
           <p className="error-detail">{installResult.error}</p>
+          <div className="wizard-actions">
+            <button className="wizard-btn wizard-btn-primary" onClick={startInstall}>
+              🔄 重试安装
+            </button>
+          </div>
         </div>
       )}
 
@@ -357,17 +355,17 @@ function SetupWizard({ onComplete, onClose }) {
         <ul>
           <li>
             <span className="status-icon">
-              {envResult?.python?.available ? '✅' : '❌'}
+              {finalEnv?.python?.available ? '✅' : '❌'}
             </span>
-            Python {envResult?.python?.version || '未安装'}
+            Python {finalEnv?.python?.version || '未安装'}
           </li>
           <li>
             <span className="status-icon">
-              {envResult?.platformio?.available ? '✅' : '❌'}
+              {finalEnv?.platformio?.available ? '✅' : '❌'}
             </span>
-            PlatformIO {envResult?.platformio?.version || '未安装'}
+            PlatformIO {finalEnv?.platformio?.version || '未安装'}
           </li>
-          {Object.entries(envResult?.toolchains || {}).map(([name, info]) => (
+          {Object.entries(finalEnv?.toolchains || {}).map(([name, info]) => (
             <li key={name}>
               <span className="status-icon">
                 {info.available ? '✅' : '❌'}
@@ -382,7 +380,8 @@ function SetupWizard({ onComplete, onClose }) {
         开始编程 →
       </button>
     </div>
-  )
+    )
+  }
 
   // ── 主渲染 ──
 

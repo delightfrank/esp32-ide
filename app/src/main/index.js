@@ -18,10 +18,35 @@ const isDev = !app.isPackaged
 let mainWindow = null
 
 // ═══════════════════════════════════════════════════
-// Bug 1: 中文路径检测辅助函数
+// 路径检测辅助函数（仅在用户选择/创建项目时提示，不检测应用安装目录）
 // ═══════════════════════════════════════════════════
-function hasChinese(str) {
-  return /[\u4e00-\u9fff]/.test(str)
+function hasNonAscii(str) {
+  // 任何非 ASCII 字符（中文、全角符号、emoji 等）都会导致 PlatformIO 工具链失败
+  return /[^\x00-\x7F]/.test(str)
+}
+
+function hasSpace(str) {
+  return /\s/.test(str)
+}
+
+/**
+ * 生成项目路径警告（非 ASCII 为硬伤，空格为软警告）
+ * @returns {{message: string, detail: string}|null}
+ */
+function projectPathWarning(projectPath) {
+  if (hasNonAscii(projectPath)) {
+    return {
+      message: '项目路径包含中文或非 ASCII 字符',
+      detail: `PlatformIO 工具链在中文/非 ASCII 路径下编译会失败。\n建议将项目放在纯英文无空格的路径下，例如 D:\\esp32-projects\\myproject。\n\n当前路径：${projectPath}`
+    }
+  }
+  if (hasSpace(projectPath)) {
+    return {
+      message: '项目路径包含空格',
+      detail: `部分 PlatformIO 命令在含空格的路径下可能报错。\n建议将项目放在无空格的路径下。\n\n当前路径：${projectPath}`
+    }
+  }
+  return null
 }
 
 // 当前打开的文件路径
@@ -136,6 +161,9 @@ function createWindow() {
       if (choice === 0) {
         e.preventDefault()
         handleSave().then(() => {
+          mainWindow.destroy()
+        }).catch(() => {
+          // BUG-2: 保存失败时仍需关闭窗口，避免卡死
           mainWindow.destroy()
         })
       } else if (choice === 2) {
@@ -342,6 +370,54 @@ function createMenu() {
       ]
     },
     {
+      label: '工具',
+      submenu: [
+        {
+          label: '首次启动向导',
+          click: () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              // 先检测环境，然后发送向导事件
+              checkEnvironment().then((env) => {
+                mainWindow.webContents.send('show-setup-wizard', env)
+              })
+            }
+          }
+        },
+        {
+          label: '重新检测环境',
+          click: async () => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              const env = await checkEnvironment()
+              const status = env.ready ? '✅ 环境就绪' : '❌ 环境不完整'
+              dialog.showMessageBox(mainWindow, {
+                type: env.ready ? 'info' : 'warning',
+                title: '环境检测结果',
+                message: status,
+                detail: `Python: ${env.python.available ? env.python.version : '未安装'}\nPlatformIO: ${env.platformio.available ? env.platformio.version : '未安装'}`
+              })
+            }
+          }
+        }
+      ]
+    },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '关于 ESP32 IDE',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: '关于 ESP32 IDE',
+              message: 'ESP32 IDE v1.0.0',
+              detail: '面向新手的 ESP32 一站式开发工具\n\n功能：代码编写、编译烧录、串口监视\n内置：PlatformIO + Monaco Editor',
+              buttons: ['确定']
+            })
+          }
+        }
+      ]
+    },
+    {
       label: '编辑',
       submenu: [
         { role: 'undo', label: '撤销' },
@@ -418,21 +494,30 @@ ipcMain.handle('select-project-folder', async () => {
   if (result.canceled || result.filePaths.length === 0) {
     return { success: false, canceled: true }
   }
-  currentProjectPath = result.filePaths[0]
+  const selected = result.filePaths[0]
+
+  // 项目路径级警告（中文/非 ASCII / 空格），可选择继续或取消
+  const warn = projectPathWarning(selected)
+  if (warn) {
+    const choice = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: warn.message,
+      message: warn.message,
+      detail: warn.detail,
+      buttons: ['仍要使用', '取消'],
+      defaultId: 1,
+      cancelId: 1
+    })
+    if (choice.response === 1) {
+      return { success: false, canceled: true }
+    }
+  }
+
+  currentProjectPath = selected
   try { fs.writeFileSync(projectPathFile, currentProjectPath, 'utf-8') } catch(e) {}
   // H1: 同步项目路径到文件树模块
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('file-tree-project-changed', currentProjectPath)
-  }
-  // Warn if project path contains Chinese characters
-  if (hasChinese(currentProjectPath)) {
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Path contains Chinese characters',
-      message: 'The selected path contains Chinese characters:',
-      detail: currentProjectPath + '\n\nPlatformIO may have issues. Consider using a pure English path.',
-      buttons: ['OK'],
-    })
   }
   return { success: true, path: currentProjectPath }
 })
@@ -497,21 +582,7 @@ app.whenReady().then(() => {
   createMenu()
   createWindow()
 
-  // Check project path for Chinese characters on startup
-  if (currentProjectPath && hasChinese(currentProjectPath)) {
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Project path contains Chinese characters',
-      message: 'Your project path may cause issues with PlatformIO:',
-      detail: currentProjectPath + '\nConsider moving to a pure English path.',
-      buttons: ['Continue', 'Exit'],
-      defaultId: 0
-    }).then(({ response }) => {
-      if (response === 1) app.quit()
-    })
-  }
-
-  // Bug 2: crash recovery on startup
+  // ─── Bug 2: 启动时检查崩溃恢复 ───
   const recovery = checkAutosaveRecovery()
   if (recovery.available && mainWindow && !mainWindow.isDestroyed()) {
     // 等窗口加载完成后通知渲染进程
@@ -595,7 +666,24 @@ app.whenReady().then(() => {
     return getTemplateList()
   })
 
-  ipcMain.handle('create-project', (event, projectDir, projectName, templateId, chipType) => {
+  ipcMain.handle('create-project', async (event, projectDir, projectName, templateId, chipType) => {
+    // 项目路径级警告（中文/非 ASCII / 空格）
+    const targetPath = path.join(projectDir || '', projectName || '')
+    const warn = projectPathWarning(targetPath)
+    if (warn) {
+      const choice = await dialog.showMessageBox(mainWindow, {
+        type: 'warning',
+        title: warn.message,
+        message: warn.message,
+        detail: warn.detail,
+        buttons: ['仍要创建', '取消'],
+        defaultId: 1,
+        cancelId: 1
+      })
+      if (choice.response === 1) {
+        return { success: false, canceled: true, error: '已取消：项目路径不推荐' }
+      }
+    }
     return createProject(projectDir, projectName, templateId, chipType)
   })
 

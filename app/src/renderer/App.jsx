@@ -61,6 +61,8 @@ function App() {
       if (p) {
         setProjectPath(p)
         projectPathRef.current = p
+        // H1: 同步项目路径到文件树模块（启用路径安全校验）
+        window.electronAPI?.fileTreeSetProject?.(p)
       }
     })
   }, [])
@@ -111,6 +113,30 @@ function App() {
   const [newProjectTemplate, setNewProjectTemplate] = useState('blink')
 
   // ═══════════════════════════════════════════════
+  // 编译输出（必须最先声明：任何 useCallback 的依赖数组
+  // 都是立即求值的，若在声明前引用 appendOutput 会触发 TDZ
+  // "Cannot access 'appendOutput' before initialization" 崩溃）
+  // ═══════════════════════════════════════════════
+
+  const appendOutput = useCallback((text) => {
+    setOutputLines(prev => {
+      const next = [...prev, text]
+      // BUG-10: 截断到最大行数，并在顶部插入提示
+      if (next.length > MAX_OUTPUT_LINES) {
+        const dropped = next.length - MAX_OUTPUT_LINES
+        const sliced = next.slice(-MAX_OUTPUT_LINES)
+        sliced[0] = `[... 已省略 ${dropped} 行 ...]`
+        return sliced
+      }
+      return next
+    })
+  }, [])
+
+  const clearOutput = useCallback(() => {
+    setOutputLines([])
+  }, [])
+
+  // ═══════════════════════════════════════════════
   // 编辑器操作
   // ═══════════════════════════════════════════════
 
@@ -137,7 +163,7 @@ function App() {
   }, [])
 
   // 从文件树打开文件
-  const handleFileOpenFromTree = useCallback(async (filePath, content) => {
+  const handleFileOpenFromTree = useCallback(async (filePath, content, encodingWarning) => {
     if (filePath === null) {
       // 清空编辑器（文件被删除）
       setCode('')
@@ -165,7 +191,12 @@ function App() {
     setActiveFilePath(filePath)
     setIsModified(false)
     window.electronAPI?.reportModified(false)
-  }, [activeFilePath, isModified])
+
+    // M7: 文件可能是 GBK 编码，向用户提示
+    if (encodingWarning) {
+      appendOutput(`⚠️ ${encodingWarning}`)
+    }
+  }, [activeFilePath, isModified, appendOutput])
 
   // Bug 1: 手动触发自动保存
   const triggerAutoSave = useCallback(async () => {
@@ -235,19 +266,7 @@ function App() {
     }
   }, [])
 
-  // 编译输出：appendOutput/clearOutput 必须先于所有引用它们的回调声明（否则 TDZ 崩溃）
-  const appendOutput = useCallback((text) => {
-    setOutputLines(prev => {
-      const next = [...prev, text]
-      // Bug 3: 截断到最大行数，避免大项目编译内存爆
-      return next.length > MAX_OUTPUT_LINES ? next.slice(-MAX_OUTPUT_LINES) : next
-    })
-  }, [])
-
-  const clearOutput = useCallback(() => {
-    setOutputLines([])
-  }, [])
-
+  // 编译输出：appendOutput/clearOutput 已在组件顶部声明（避免 TDZ 崩溃）
   // 向导完成后重新检测环境
   const handleSetupComplete = useCallback(async () => {
     setShowSetupWizard(false)
@@ -330,6 +349,8 @@ function App() {
     if (result?.success) {
       setProjectPath(result.path)
       projectPathRef.current = result.path
+      // H1: 同步项目路径到文件树模块（启用路径安全校验）
+      window.electronAPI?.fileTreeSetProject?.(result.path)
       const iniResult = await window.electronAPI?.generatePioIni(result.path, chipType)
       if (iniResult?.success) {
         appendOutput(`✓ 已生成 platformio.ini (${chipType})`)
@@ -376,6 +397,8 @@ function App() {
     if (result?.success) {
       setProjectPath(result.projectPath)
       projectPathRef.current = result.projectPath
+      // H1: 同步项目路径到文件树模块（启用路径安全校验）
+      window.electronAPI?.fileTreeSetProject?.(result.projectPath)
       setShowNewProjectDialog(false)
       appendOutput(`✓ 项目已创建: ${result.projectPath}`)
       appendOutput(`  模板: ${result.template} | 芯片: ${chipType}`)
@@ -563,35 +586,58 @@ function App() {
   }, [])
 
   // ═══════════════════════════════════════════════
-  // IPC 监听
+  // IPC 监听（BUG-1: 修复监听器泄漏 + BUG-7: 用 ref 取最新值）
   // ═══════════════════════════════════════════════
 
+  // 用 ref 保存最新回调，避免 IPC 监听器捕获过期闭包
+  const handleNewFileRef = useRef(handleNewFile)
+  handleNewFileRef.current = handleNewFile
+  const handleFileOpenedRef = useRef(handleFileOpened)
+  handleFileOpenedRef.current = handleFileOpened
+  const latestCodeRef = useRef(code)
+  latestCodeRef.current = code
+
+  // 文件操作 IPC（空依赖，只注册一次，cleanup 移除）
   useEffect(() => {
-    window.electronAPI?.onNewFile(handleNewFile)
-    window.electronAPI?.onFileOpened(handleFileOpened)
+    const onNewFile = () => { handleNewFileRef.current() }
+    const onFileOpened = (data) => { handleFileOpenedRef.current(data) }
+    const onGetEditorContent = () => {
+      window.electronAPI?.sendEditorContent(latestCodeRef.current)
+    }
 
-    window.electronAPI?.onGetEditorContent(() => {
-      window.electronAPI?.sendEditorContent(code)
-    })
+    window.electronAPI?.onNewFile(onNewFile)
+    window.electronAPI?.onFileOpened(onFileOpened)
+    window.electronAPI?.onGetEditorContent(onGetEditorContent)
 
-    // PlatformIO 实时输出
-    window.electronAPI?.onPioOutput((data) => {
+    return () => {
+      window.electronAPI?.removeNewFileListener(onNewFile)
+      window.electronAPI?.removeFileOpenedListener(onFileOpened)
+      window.electronAPI?.removeGetEditorContentListener(onGetEditorContent)
+    }
+  }, [])
+
+  // PlatformIO / 错误跳转 IPC（空依赖，只注册一次，cleanup 移除）
+  useEffect(() => {
+    const onPioOutput = (data) => {
       if (data.type === 'stdout' || data.type === 'stderr') {
         const lines = data.data.split('\n').filter(l => l.trim())
         setOutputLines(prev => {
           const next = [...prev, ...lines]
-          // Bug 3: 截断到最大行数
-          return next.length > MAX_OUTPUT_LINES ? next.slice(-MAX_OUTPUT_LINES) : next
+          if (next.length > MAX_OUTPUT_LINES) {
+            const dropped = next.length - MAX_OUTPUT_LINES
+            const sliced = next.slice(-MAX_OUTPUT_LINES)
+            sliced[0] = `[... 已省略 ${dropped} 行 ...]`
+            return sliced
+          }
+          return next
         })
       }
-      // 编译开始时自动切换到编译输出 tab
       if (data.type === 'start') {
         setBottomTab('console')
       }
-    })
+    }
 
-    // PlatformIO 状态变化
-    window.electronAPI?.onPioStatus((data) => {
+    const onPioStatus = (data) => {
       if (data.status === 'building') {
         setBuildStatus(STATUS.BUILDING)
         setStatusMessage('编译中...')
@@ -602,17 +648,26 @@ function App() {
         setBuildStatus(STATUS.ERROR)
         setStatusMessage('✗ 操作失败')
       }
-    })
+    }
 
-    // 错误跳转
-    window.electronAPI?.onGotoError((errorInfo) => {
+    const onGotoError = (errorInfo) => {
       if (editorRef.current) {
         editorRef.current.revealLineInCenter(errorInfo.line)
         editorRef.current.setPosition({ lineNumber: errorInfo.line, column: errorInfo.column || 1 })
         editorRef.current.focus()
       }
-    })
-  }, [code, handleNewFile, handleFileOpened])
+    }
+
+    window.electronAPI?.onPioOutput(onPioOutput)
+    window.electronAPI?.onPioStatus(onPioStatus)
+    window.electronAPI?.onGotoError(onGotoError)
+
+    return () => {
+      window.electronAPI?.removePioOutputListener(onPioOutput)
+      window.electronAPI?.removePioStatusListener(onPioStatus)
+      window.electronAPI?.removeGotoErrorListener(onGotoError)
+    }
+  }, [])
 
   // ═══════════════════════════════════════════════
   // 渲染

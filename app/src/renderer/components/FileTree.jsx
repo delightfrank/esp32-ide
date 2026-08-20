@@ -267,6 +267,31 @@ function FileTree({ projectPath, onFileOpen, activeFilePath }) {
     }
   }, [projectPath, refreshTree])
 
+  // BUG: 打开文件时自动展开父目录，确保文件在树中可见
+  useEffect(() => {
+    if (!activeFilePath || !projectPath || treeData.length === 0) return
+
+    // 提取 activeFilePath 的所有父目录路径
+    const parts = activeFilePath.substring(projectPath.length).split(/[/\\]/).filter(Boolean)
+    const parentDirs = []
+    let current = projectPath
+    for (const part of parts.slice(0, -1)) { // 不包含文件本身
+      current = current + '/' + part
+      parentDirs.push(current)
+    }
+
+    // 展开所有父目录
+    if (parentDirs.length > 0) {
+      setExpandedDirs(prev => {
+        const next = new Set(prev)
+        for (const dir of parentDirs) {
+          next.add(dir)
+        }
+        return next
+      })
+    }
+  }, [activeFilePath, projectPath, treeData])
+
   // 监听编辑器保存事件 → 自动刷新
   useEffect(() => {
     const handleSaved = () => {
@@ -309,7 +334,8 @@ function FileTree({ projectPath, onFileOpen, activeFilePath }) {
       if (result?.success) {
         // M1: 同步文件路径到主进程，避免保存时弹另存为
         window.electronAPI?.syncCurrentFilePath?.(item.path)
-        onFileOpen?.(item.path, result.content)
+        // M7: 传递编码警告（GBK 等），由 App 显示到输出面板
+        onFileOpen?.(item.path, result.content, result.encodingWarning)
       }
     } catch (err) {
       console.error('打开文件失败:', err)
@@ -373,7 +399,7 @@ function FileTree({ projectPath, onFileOpen, activeFilePath }) {
     setInputDialog({
       title: '新建文件',
       placeholder: '输入文件名（如 main.c）',
-      defaultValue: '.c',
+      defaultValue: 'main.c',
       onConfirm: async (name) => {
         // 自动补全 .c 后缀
         if (!name.includes('.')) {

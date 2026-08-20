@@ -118,12 +118,18 @@ function downloadFile(url, destPath, onProgress) {
 
 /**
  * 执行命令并返回输出
+ * 不使用 shell，避免路径含空格时被 cmd 解析错误
+ * 传递 PYTHONIOENCODING=utf-8 避免 Python 中文编码错误
  */
 function runCommand(cmd, args = [], options = {}) {
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args, {
-      shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONLEGACYWINDOWSSTDIO: '1'
+      },
       ...options
     })
 
@@ -131,11 +137,11 @@ function runCommand(cmd, args = [], options = {}) {
     let stderr = ''
 
     proc.stdout.on('data', (data) => {
-      stdout += data.toString()
+      stdout += data.toString('utf-8')
     })
 
     proc.stderr.on('data', (data) => {
-      stderr += data.toString()
+      stderr += data.toString('utf-8')
     })
 
     proc.on('close', (code) => {
@@ -178,29 +184,24 @@ async function checkEnvironment() {
 
   const appDir = getEmbeddedDir()
 
-  // Async version detection with real timeout + shell:true for .cmd files
+  // P3: 用异步 spawn 替代 execSync，不阻塞主进程
   async function getVersion(cmd, args, timeout = 5000) {
     return new Promise((resolve) => {
       const proc = spawn(cmd, args, {
+        timeout,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: process.platform === 'win32',
-        windowsHide: true
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8'
+        }
       })
       let stdout = ''
-      let killed = false
-      const timer = setTimeout(() => {
-        killed = true
-        try { proc.kill('SIGTERM') } catch (e) {}
-      }, timeout)
-      proc.stdout.on('data', (d) => { stdout += d.toString() })
-      proc.on('close', () => {
-        clearTimeout(timer)
-        resolve(killed ? null : (stdout.trim() || null))
-      })
-      proc.on('error', () => {
-        clearTimeout(timer)
-        resolve(null)
-      })
+      let stderr = ''
+      proc.stdout.on('data', (d) => { stdout += d.toString('utf-8') })
+      // 注意：python --version 输出到 stderr，必须合并读取，否则系统 Python 永远检测不到
+      proc.stderr.on('data', (d) => { stderr += d.toString('utf-8') })
+      proc.on('close', () => resolve((stdout + stderr).trim()))
+      proc.on('error', () => resolve(null))
     })
   }
 
@@ -217,19 +218,14 @@ async function checkEnvironment() {
     if (ver) result.python.version = ver
   }
 
-  // Detect system Python (Windows: try python3, py -3, python in order)
+  // 检测系统 Python
   if (!result.python.available) {
-    const pyCandidates = process.platform === 'win32'
-      ? [['python3', ['--version']], ['py', ['-3', '--version']], ['python', ['--version']]]
-      : [['python3', ['--version']], ['python', ['--version']]]
-    for (const [cmd, args] of pyCandidates) {
-      const ver = await getVersion(cmd, args)
-      if (ver && !ver.includes('Microsoft')) {
-        result.python.available = true
-        result.python.version = ver
-        result.python.path = cmd
-        break
-      }
+    const py3 = process.platform === 'win32' ? 'python' : 'python3'
+    const ver = await getVersion(py3, ['--version'])
+    if (ver) {
+      result.python.available = true
+      result.python.version = ver
+      result.python.path = py3
     }
   }
 
@@ -246,19 +242,13 @@ async function checkEnvironment() {
     if (ver) result.platformio.version = ver
   }
 
-  // Detect system PlatformIO
+  // 检测系统 PlatformIO
   if (!result.platformio.available) {
-    const pioCandidates = process.platform === 'win32'
-      ? ['pio', 'pio.exe']
-      : ['pio']
-    for (const cmd of pioCandidates) {
-      const ver = await getVersion(cmd, ['--version'])
-      if (ver) {
-        result.platformio.available = true
-        result.platformio.version = ver
-        result.platformio.path = cmd
-        break
-      }
+    const ver = await getVersion('pio', ['--version'])
+    if (ver) {
+      result.platformio.available = true
+      result.platformio.version = ver
+      result.platformio.path = 'pio'
     }
   }
 
@@ -281,8 +271,9 @@ async function checkEnvironment() {
     }
   }
 
-  // 判断是否就绪
-  result.ready = result.python.available && result.platformio.available
+  // 判断是否就绪：Python + PlatformIO + 至少一个工具链
+  const hasToolchains = Object.values(result.toolchains).some(tc => tc.available)
+  result.ready = result.python.available && result.platformio.available && hasToolchains
 
   setupStatus.environment = result
   return result
@@ -319,6 +310,25 @@ async function installPlatformio(mirror, mainWindowGetter) {
       message: `使用 ${mirrorConfig.name} 安装 PlatformIO...`
     })
 
+    // BUG-9: 手动模式：验证 pio 是否真的可用
+    if (mirror === 'manual') {
+      const pioCheck = await getVersion('pio', ['--version'])
+      if (pioCheck) {
+        sendProgress(mainWindowGetter, {
+          progress: 60,
+          message: '手动模式：检测到系统 PlatformIO，跳过下载'
+        })
+        return true
+      } else {
+        sendProgress(mainWindowGetter, {
+          running: false,
+          error: '手动模式下未检测到 PlatformIO（pio 命令不可用）。请先安装 PlatformIO：pip install platformio',
+          message: '安装失败'
+        })
+        return false
+      }
+    }
+
     // 使用 pip 安装 PlatformIO
     const pipArgs = [
       '-m', 'pip', 'install',
@@ -346,7 +356,98 @@ async function installPlatformio(mirror, mainWindowGetter) {
 }
 
 /**
+ * 从 GitHub 直接下载工具链（当 dl.espressif.com 不可用时的备用方案）
+ * @param {string} toolName - 工具链名称
+ * @param {string} pioPackagesDir - PlatformIO 包安装目录
+ * @param {Function} onProgress - 进度回调
+ */
+async function downloadToolchainFromGithub(toolName, pioPackagesDir, onProgress) {
+  // GitHub 上的工具链 URL（esp-2021r2-patch5 版本，稳定版）
+  const toolchainUrls = {
+    'toolchain-xtensa-esp32': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+    'toolchain-xtensa-esp32s3': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/xtensa-esp32s3-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip',
+    'toolchain-riscv32-esp': 'https://github.com/espressif/crosstool-NG/releases/download/esp-2021r2-patch5/riscv32-esp-elf-gcc8_4_0-esp-2021r2-patch5-win64.zip'
+  }
+
+  const url = toolchainUrls[toolName]
+  if (!url) {
+    throw new Error(`未找到 ${toolName} 的 GitHub 下载地址`)
+  }
+
+  const targetDir = path.join(pioPackagesDir, toolName)
+  const tmpDir = path.join(os.tmpdir(), 'toolchain-download-' + Date.now())
+
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true })
+    const zipFile = path.join(tmpDir, `${toolName}.zip`)
+
+    onProgress(`从 GitHub 下载 ${toolName}...`)
+
+    // 下载 ZIP 文件
+    const https = require('https')
+    const http = require('http')
+
+    await new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http
+      protocol.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          // 跟随重定向
+          protocol.get(res.headers.location, (res2) => {
+            const fileStream = fs.createWriteStream(zipFile)
+            res2.pipe(fileStream)
+            fileStream.on('finish', () => { fileStream.close(); resolve() })
+            fileStream.on('error', reject)
+          }).on('error', reject)
+          return
+        }
+
+        if (res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}`))
+          return
+        }
+
+        const fileStream = fs.createWriteStream(zipFile)
+        res.pipe(fileStream)
+        fileStream.on('finish', () => { fileStream.close(); resolve() })
+        fileStream.on('error', reject)
+      }).on('error', reject)
+    })
+
+    onProgress(`解压 ${toolName}...`)
+
+    // 解压到目标目录
+    const { execSync } = require('child_process')
+    // 使用 PowerShell 解压 ZIP
+    execSync(`powershell -Command "Expand-Archive -Path '${zipFile}' -DestinationPath '${tmpDir}\\extracted' -Force"`)
+
+    // 移动到正确位置
+    // GitHub 下载的 ZIP 内部目录结构：xtensa-esp32-elf/ 或直接是工具链文件
+    const extractedDir = path.join(tmpDir, 'extracted')
+    const entries = fs.readdirSync(extractedDir)
+
+    fs.mkdirSync(targetDir, { recursive: true })
+    for (const entry of entries) {
+      const src = path.join(extractedDir, entry)
+      const dst = path.join(targetDir, entry)
+      fs.cpSync(src, dst, { recursive: true })
+    }
+
+    onProgress(`${toolName} 安装完成`)
+    return true
+  } catch (err) {
+    onProgress(`${toolName} 下载失败: ${err.message}`)
+    throw err
+  } finally {
+    // 清理临时目录
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    } catch (e) { /* ignore */ }
+  }
+}
+
+/**
  * 下载 ESP32 工具链
+ * 优先使用 PlatformIO（dl.espressif.com），失败后自动从 GitHub 下载
  */
 async function installToolchains(mirror, mainWindowGetter) {
   sendProgress(mainWindowGetter, {
@@ -359,10 +460,31 @@ async function installToolchains(mirror, mainWindowGetter) {
 
   const mirrorConfig = MIRRORS[mirror] || MIRRORS.github
 
+  // 修复：创建临时目录配置 PlatformIO 使用国内镜像
+  const os = require('os')
+  const tmpDir = path.join(os.tmpdir(), 'pio-install-' + Date.now())
+  fs.mkdirSync(tmpDir, { recursive: true })
+
+  // 创建临时 platformio.ini 配置镜像
+  const iniContent = `
+[platformio]
+src_dir = src
+
+[env:esp32]
+platform = espressif32
+board = esp32dev
+framework = arduino
+`
+  fs.writeFileSync(path.join(tmpDir, 'platformio.ini'), iniContent)
+  fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true })
+
   // 尝试通过 pio pkg install 安装
   const pioCmd = setupStatus.environment?.platformio?.path || 'pio'
 
   try {
+    const failures = []
+    const pioPackagesDir = path.join(os.homedir(), '.platformio', 'packages')
+
     for (let i = 0; i < TOOLCHAIN_PACKAGES.length; i++) {
       const tc = TOOLCHAIN_PACKAGES[i]
       const progress = 70 + Math.floor((i / TOOLCHAIN_PACKAGES.length) * 28)
@@ -372,23 +494,61 @@ async function installToolchains(mirror, mainWindowGetter) {
         message: `安装 ${tc.description}...`
       })
 
-      try {
-        await runCommand(pioCmd, ['pkg', 'install', '-g', '-l', tc.name, '--no-interaction'], {
-          timeout: 180000
-        })
-        sendProgress(mainWindowGetter, {
-          message: `✅ ${tc.description} 安装完成`
-        })
-      } catch (err) {
-        sendProgress(mainWindowGetter, {
-          message: `⚠️ ${tc.description} 安装失败: ${err.message}`
-        })
+      // 检查是否已安装
+      const targetDir = path.join(pioPackagesDir, tc.name)
+      if (fs.existsSync(targetDir)) {
+        sendProgress(mainWindowGetter, { message: `✅ ${tc.description} 已存在，跳过` })
+        continue
       }
+
+      let installed = false
+
+      // 方案 1：尝试 PlatformIO 自动安装（30 秒超时）
+      try {
+        sendProgress(mainWindowGetter, { message: `尝试 PlatformIO 安装 ${tc.description}...` })
+        await runCommand(pioCmd, ['pkg', 'install', '-g', '-t', tc.name], {
+          cwd: tmpDir,
+          timeout: 30000  // 30 秒超时
+        })
+        installed = true
+        sendProgress(mainWindowGetter, { message: `✅ ${tc.description} 安装完成（PlatformIO）` })
+      } catch (pioErr) {
+        // PlatformIO 失败，尝试 GitHub 备用下载
+        sendProgress(mainWindowGetter, { message: `PlatformIO 安装失败，尝试从 GitHub 下载...` })
+      }
+
+      // 方案 2：从 GitHub 直接下载
+      if (!installed) {
+        try {
+          await downloadToolchainFromGithub(tc.name, pioPackagesDir, (msg) => {
+            sendProgress(mainWindowGetter, { message: msg })
+          })
+          installed = true
+          sendProgress(mainWindowGetter, { message: `✅ ${tc.description} 安装完成（GitHub）` })
+        } catch (ghErr) {
+          failures.push(tc.name)
+          sendProgress(mainWindowGetter, {
+            message: `⚠️ ${tc.description} 安装失败: ${ghErr.message}`
+          })
+        }
+      }
+    }
+
+    setupStatus.toolchainFailures = failures
+
+    // 全部失败才算安装失败，并给出手动安装命令作为补救措施
+    if (failures.length === TOOLCHAIN_PACKAGES.length) {
+      sendProgress(mainWindowGetter, {
+        running: false,
+        error: `工具链全部安装失败（${failures.join('、')}）。请检查网络后重试，或手动执行：\n${failures.map(tc => `pio pkg install -g -t ${tc}`).join('\n')}`,
+        message: '安装失败'
+      })
+      return false
     }
 
     sendProgress(mainWindowGetter, {
       progress: 98,
-      message: '工具链安装完成'
+      message: failures.length > 0 ? `工具链部分安装完成（失败 ${failures.length} 项，可稍后重试）` : '工具链安装完成'
     })
 
     return true
@@ -399,6 +559,11 @@ async function installToolchains(mirror, mainWindowGetter) {
       message: '安装失败'
     })
     return false
+  } finally {
+    // 清理临时目录
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    } catch (e) { /* ignore */ }
   }
 }
 
@@ -440,8 +605,12 @@ function registerSetupIpc(ipcMain, mainWindowGetter) {
       return { success: false, error: setupStatus.error }
     }
 
-    // 步骤 2：安装工具链
+    // 步骤 2：安装工具链（全部失败时返回失败，避免误报"安装完成"）
     const tcOk = await installToolchains(mirror, mainWindowGetter)
+    if (!tcOk) {
+      setupStatus.running = false
+      return { success: false, error: setupStatus.error || '工具链安装失败' }
+    }
 
     // 步骤 3：重新检测环境
     sendProgress(mainWindowGetter, {
@@ -470,6 +639,7 @@ module.exports = {
   checkEnvironment,
   installPlatformio,
   installToolchains,
+  downloadToolchainFromGithub,
   getSetupStatus,
   registerSetupIpc,
   getEmbeddedDir,

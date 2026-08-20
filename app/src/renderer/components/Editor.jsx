@@ -111,7 +111,7 @@ function CodeEditor({ value, onChange, editorRef }) {
         onChange={handleChange}
         onMount={handleEditorDidMount}
         options={editorOptions}
-        theme="esp32-dark"
+        theme="vs-dark"
         loading={
           <div className="editor-loading">
             <span>Loading editor...</span>

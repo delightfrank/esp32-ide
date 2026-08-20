@@ -7,6 +7,7 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 const { app } = require('electron')
+const { downloadToolchainFromGithub } = require('./setup-manager')
 
 const BUILD_TIMEOUT = 10 * 60 * 1000 // 10 分钟编译超时
 
@@ -15,6 +16,7 @@ let activeProcess = null
 let buildTimeoutTimer = null
 let isBuilding = false
 let buildLockToken = 0  // 防穿透锁：快速连续调用时保证原子性
+let downloadDetected = false  // 检测是否在下载依赖
 
 /**
  * 获取 PlatformIO 可执行文件路径
@@ -84,6 +86,8 @@ function runPio(mainWindowGetter, command, options = {}) {
       cwd,
       env: {
         ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONLEGACYWINDOWSSTDIO: '1',
         PLATFORMIO_CORE_DIR: path.join(os.homedir(), '.platformio'),
       }
     })
@@ -113,21 +117,37 @@ function runPio(mainWindowGetter, command, options = {}) {
 
     // 实时推送标准输出
     pio.stdout.on('data', (data) => {
-      const text = data.toString()
+      const text = data.toString('utf-8')
       if (stdout.length < MAX_OUTPUT_BYTES) stdout += text
       const mwOut = resolveWindow(mainWindowGetter)
       if (mwOut && !mwOut.isDestroyed()) {
         mwOut.webContents.send('pio-output', { type: 'stdout', data: text })
       }
+
+      // 检测下载状态，给用户实时反馈
+      if (text.includes('Downloading') || text.includes('下载')) {
+        downloadDetected = true
+      }
     })
 
     // 实时推送标准错误
     pio.stderr.on('data', (data) => {
-      const text = data.toString()
+      const text = data.toString('utf-8')
       if (stderr.length < MAX_OUTPUT_BYTES) stderr += text
       const mwErr = resolveWindow(mainWindowGetter)
       if (mwErr && !mwErr.isDestroyed()) {
         mwErr.webContents.send('pio-output', { type: 'stderr', data: text })
+      }
+
+      // 检测下载错误
+      if (text.includes('ConnectionError') || text.includes('TimeoutError') || text.includes('超时')) {
+        const mwErr2 = resolveWindow(mainWindowGetter)
+        if (mwErr2 && !mwErr2.isDestroyed()) {
+          mwErr2.webContents.send('pio-output', {
+            type: 'stderr',
+            data: '\n[提示] 下载超时，可能是 dl.espressif.com 访问受限。请配置代理或使用国内镜像。'
+          })
+        }
       }
     })
 
@@ -181,9 +201,105 @@ function runPio(mainWindowGetter, command, options = {}) {
 }
 
 /**
- * 编译项目
+ * 编译项目（编译前检查工具链，缺失时自动从 GitHub 下载）
  */
-function build(mainWindowGetter, projectPath) {
+async function build(mainWindowGetter, projectPath) {
+  // 编译前检查：验证工具链是否已安装
+  const pioPackagesDir = path.join(os.homedir(), '.platformio', 'packages')
+
+  // 读取 platformio.ini 检查需要哪个芯片的工具链
+  const iniPath = path.join(projectPath, 'platformio.ini')
+  let needsEsp32 = true
+  let needsEsp32s3 = false
+  let needsEsp32c3 = false
+
+  try {
+    const iniContent = fs.readFileSync(iniPath, 'utf-8').toLowerCase()
+    if (iniContent.includes('esp32-s3') || iniContent.includes('esp32s3')) {
+      needsEsp32s3 = true
+      needsEsp32 = false
+    } else if (iniContent.includes('esp32-c3') || iniContent.includes('esp32c3')) {
+      needsEsp32c3 = true
+      needsEsp32 = false
+    }
+  } catch (e) { /* 文件不存在或读取失败，继续尝试编译 */ }
+
+  // 检查必要的工具链是否已安装
+  const missingTools = []
+  if (needsEsp32 && !fs.existsSync(path.join(pioPackagesDir, 'toolchain-xtensa-esp32'))) {
+    missingTools.push('toolchain-xtensa-esp32')
+  }
+  if (needsEsp32s3 && !fs.existsSync(path.join(pioPackagesDir, 'toolchain-xtensa-esp32s3'))) {
+    missingTools.push('toolchain-xtensa-esp32s3')
+  }
+  if (needsEsp32c3 && !fs.existsSync(path.join(pioPackagesDir, 'toolchain-riscv32-esp'))) {
+    missingTools.push('toolchain-riscv32-esp')
+  }
+
+  if (missingTools.length > 0) {
+    const mw = resolveWindow(mainWindowGetter)
+
+    // 尝试自动下载缺失的工具链
+    if (mw && !mw.isDestroyed()) {
+      mw.webContents.send('pio-output', {
+        type: 'stdout',
+        data: `\n📦 检测到缺少工具链，正在自动下载...\n`
+      })
+    }
+
+    for (const toolName of missingTools) {
+      try {
+        if (mw && !mw.isDestroyed()) {
+          mw.webContents.send('pio-output', {
+            type: 'stdout',
+            data: `  ⬇️ 下载 ${toolName}...\n`
+          })
+        }
+
+        await downloadToolchainFromGithub(toolName, pioPackagesDir, (msg) => {
+          if (mw && !mw.isDestroyed()) {
+            mw.webContents.send('pio-output', { type: 'stdout', data: `  ${msg}\n` })
+          }
+        })
+
+        if (mw && !mw.isDestroyed()) {
+          mw.webContents.send('pio-output', {
+            type: 'stdout',
+            data: `  ✅ ${toolName} 安装完成\n`
+          })
+        }
+      } catch (err) {
+        if (mw && !mw.isDestroyed()) {
+          mw.webContents.send('pio-output', {
+            type: 'stdout',
+            data: `  ❌ ${toolName} 下载失败: ${err.message}\n`
+          })
+        }
+        // 下载失败，返回错误
+        if (mw && !mw.isDestroyed()) {
+          mw.webContents.send('pio-output', {
+            type: 'stdout',
+            data: '\n请手动安装工具链：\n'
+          })
+          mw.webContents.send('pio-output', {
+            type: 'stdout',
+            data: '  工具 → 首次启动向导 → 选择国内镜像 → 开始安装\n'
+          })
+          mw.webContents.send('pio-status', { status: 'error', message: '工具链下载失败' })
+        }
+        return { success: false, code: 1, error: `工具链下载失败: ${err.message}` }
+      }
+    }
+
+    // 下载成功，继续编译
+    if (mw && !mw.isDestroyed()) {
+      mw.webContents.send('pio-output', {
+        type: 'stdout',
+        data: '\n🔨 工具链就绪，开始编译...\n\n'
+      })
+    }
+  }
+
   return runPio(mainWindowGetter, 'run', { cwd: projectPath })
 }
 
@@ -195,18 +311,27 @@ function clean(mainWindowGetter, projectPath) {
 }
 
 /**
- * 烧录项目（预留接口，Phase 3 使用）
+ * 烧录项目
  */
 function upload(mainWindowGetter, projectPath, port) {
-  return runPio(mainWindowGetter, `run -t upload --upload-port ${port}`, { cwd: projectPath })
+  // H2: 端口号白名单校验（无 shell 的 spawn 已消除命令注入，这里再挡一层参数污染）
+  const p = String(port || '').trim()
+  if (!/^(COM\d+|\/dev\/[^\s/]+)$/i.test(p)) {
+    return Promise.reject(new Error(`无效的串口端口号: ${p}`))
+  }
+  return runPio(mainWindowGetter, `run -t upload --upload-port ${p}`, { cwd: projectPath })
 }
 
 /**
  * 初始化 PlatformIO 项目
  */
 function projectInit(mainWindowGetter, projectPath, options = {}) {
-  const board = options.board || 'esp32-s3-devkitc-1'
-  const framework = options.framework || 'arduino'
+  const board = String(options.board || 'esp32-s3-devkitc-1')
+  const framework = String(options.framework || 'arduino')
+  // H2: board/framework 枚举校验
+  if (!/^[A-Za-z0-9_-]+$/.test(board) || !/^[A-Za-z0-9_-]+$/.test(framework)) {
+    return Promise.reject(new Error('无效的 board/framework 参数'))
+  }
   return runPio(mainWindowGetter, `project init --board ${board} --framework ${framework}`, { cwd: projectPath })
 }
 

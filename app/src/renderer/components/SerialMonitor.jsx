@@ -196,13 +196,36 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
   const handleSend = useCallback(async () => {
     if (!sendInput.trim() || !connected) return
 
-    const data = sendInput + '\r\n' // 添加回车换行
+    let data
+    let displayStr
+    if (hexMode) {
+      // BUG-6: HEX 模式下解析空格分隔的十六进制字符串为 Uint8Array
+      const hexStr = sendInput.trim().replace(/\s+/g, '')
+      if (!/^[0-9a-fA-F]*$/.test(hexStr) || hexStr.length % 2 !== 0) {
+        setOutputLines(prev => [...prev, {
+          bytes: new TextEncoder().encode('[错误] HEX 格式无效（需要偶数位十六进制数，如 48 65 6C 6C 6F）\n'),
+          timestamp: Date.now(),
+          isError: true
+        }])
+        return
+      }
+      const bytes = []
+      for (let i = 0; i < hexStr.length; i += 2) {
+        bytes.push(parseInt(hexStr.substr(i, 2), 16))
+      }
+      data = new Uint8Array(bytes)
+      displayStr = '→ HEX: ' + Array.from(data).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ')
+    } else {
+      // ASCII 模式：字符串加回车换行
+      data = sendInput + '\r\n'
+      displayStr = `→ ${sendInput}`
+    }
+
     try {
       const result = await window.electronAPI?.serialMonitorSend(data)
       if (result?.success) {
-        // 显示发送的数据
         setOutputLines(prev => [...prev, {
-          bytes: new TextEncoder().encode(`→ ${sendInput}\n`),
+          bytes: new TextEncoder().encode(displayStr + '\n'),
           timestamp: Date.now(),
           isSent: true
         }])
@@ -222,7 +245,7 @@ function SerialMonitor({ serialPorts, selectedPort, onStatusChange }) {
         isError: true
       }])
     }
-  }, [sendInput, connected])
+  }, [sendInput, connected, hexMode])
 
   const handleSendKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

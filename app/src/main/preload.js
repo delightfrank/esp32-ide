@@ -19,11 +19,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onNewFile: (callback) => {
     ipcRenderer.on('menu-new-file', callback)
   },
+  removeNewFileListener: (callback) => {
+    ipcRenderer.removeListener('menu-new-file', callback)
+  },
   onFileOpened: (callback) => {
     ipcRenderer.on('file-opened', (event, data) => callback(data))
   },
+  removeFileOpenedListener: (callback) => {
+    ipcRenderer.removeListener('file-opened', callback)
+  },
   onGetEditorContent: (callback) => {
     ipcRenderer.on('get-editor-content', callback)
+  },
+  removeGetEditorContentListener: (callback) => {
+    ipcRenderer.removeListener('get-editor-content', callback)
   },
 
   // ─── 项目管理 ───
@@ -43,8 +52,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPioOutput: (callback) => {
     ipcRenderer.on('pio-output', (event, data) => callback(data))
   },
+  removePioOutputListener: (callback) => {
+    ipcRenderer.removeListener('pio-output', callback)
+  },
   onPioStatus: (callback) => {
     ipcRenderer.on('pio-status', (event, data) => callback(data))
+  },
+  removePioStatusListener: (callback) => {
+    ipcRenderer.removeListener('pio-status', callback)
   },
 
   // ─── 芯片与项目配置 ───
@@ -57,6 +72,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onGotoError: (callback) => {
     ipcRenderer.on('goto-error', (event, data) => callback(data))
+  },
+  removeGotoErrorListener: (callback) => {
+    ipcRenderer.removeListener('goto-error', callback)
   },
 
   // ─── 串口管理 ───
@@ -77,11 +95,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSerialMonitorData: (callback) => {
     ipcRenderer.on('serial-monitor-data', (event, data) => callback(data))
   },
+  removeSerialMonitorDataListener: (callback) => {
+    ipcRenderer.removeListener('serial-monitor-data', callback)
+  },
   onSerialMonitorStatus: (callback) => {
     ipcRenderer.on('serial-monitor-status', (event, data) => callback(data))
   },
+  removeSerialMonitorStatusListener: (callback) => {
+    ipcRenderer.removeListener('serial-monitor-status', callback)
+  },
   onSerialMonitorReconnectRequest: (callback) => {
     ipcRenderer.on('serial-monitor-reconnect-request', callback)
+  },
+  removeSerialMonitorReconnectListener: (callback) => {
+    ipcRenderer.removeListener('serial-monitor-reconnect-request', callback)
   },
 
   // ─── 项目模板 ───
@@ -112,10 +139,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onFileTreeProjectChanged: (callback) => {
     ipcRenderer.on('file-tree-project-changed', (event, projectPath) => callback(projectPath))
   },
+  removeFileTreeProjectChangedListener: (callback) => {
+    ipcRenderer.removeListener('file-tree-project-changed', callback)
+  },
 
   // ─── 文件树事件监听 ───
   onFileTreeChanged: (callback) => {
     ipcRenderer.on('file-tree-changed', (event, data) => callback(data))
+  },
+  removeFileTreeChangedListener: (callback) => {
+    ipcRenderer.removeListener('file-tree-changed', callback)
   },
 
   // ─── 文件保存事件（编辑器保存后通知文件树刷新）───
@@ -133,6 +166,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ─── 崩溃恢复 ───
   onRecoverAvailable: (callback) => {
     ipcRenderer.on('recover-available', (event, data) => callback(data))
+  },
+  removeRecoverAvailableListener: (callback) => {
+    ipcRenderer.removeListener('recover-available', callback)
   },
   recoverResponse: (choice) => {
     ipcRenderer.send('recover-response', choice)
@@ -153,7 +189,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSetupProgress: (callback) => {
     ipcRenderer.on('setup-progress', (event, data) => callback(data))
   },
+  removeSetupProgressListener: (callback) => {
+    ipcRenderer.removeListener('setup-progress', callback)
+  },
   onShowSetupWizard: (callback) => {
     ipcRenderer.on('show-setup-wizard', (event, data) => callback(event, data))
+  },
+  removeShowSetupWizardListener: (callback) => {
+    ipcRenderer.removeListener('show-setup-wizard', callback)
   },
 })
