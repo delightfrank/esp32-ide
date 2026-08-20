@@ -121,11 +121,13 @@ function App() {
   }, [])
 
   const handleNewFile = useCallback(() => {
-    setCode('// 新文件\n')
+    setCode('// 新文件 - 在此编写代码\n')
     setActiveFilePath(null)
     setActiveFileContent(null)
     setIsModified(false)
     window.electronAPI?.reportModified(false)
+    setBuildStatus(STATUS.IDLE)
+    setStatusMessage('已创建新文件')
   }, [])
 
   const handleFileOpened = useCallback((data) => {
@@ -623,13 +625,22 @@ function App() {
       <div className="toolbar">
         <span className="toolbar-title">ESP32 IDE</span>
         <div className="toolbar-actions">
+          {/* 新建文件 */}
+          <button
+            className="toolbar-btn"
+            onClick={handleNewFile}
+            title="新建文件 (Ctrl+N)"
+          >
+            📝 新建文件
+          </button>
+
           {/* 新建项目 */}
           <button
             className="toolbar-btn"
             onClick={handleNewProject}
             title="新建项目"
           >
-            📄 新建
+            📁 新建项目
           </button>
 
           {/* 项目选择 */}
