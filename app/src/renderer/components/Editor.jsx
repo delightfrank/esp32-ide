@@ -74,84 +74,19 @@ function CodeEditor({ value, onChange, editorRef }) {
     editorRef.current = editor
     monacoRef.current = monaco
 
-    // 配置 C/C++ 语言的括号匹配规则
-    monaco.languages.setLanguageConfiguration('c', {
-      comments: {
-        lineComment: '//',
-        blockComment: ['/*', '*/']
-      },
-      brackets: [
-        ['{', '}'],
-        ['[', ']'],
-        ['(', ')']
-      ],
-      autoClosingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" },
-        { open: '/*', close: '*/' }
-      ],
-      surroundingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" }
-      ]
-    })
-
-    // C++ 也配置相同规则
-    monaco.languages.setLanguageConfiguration('cpp', {
-      comments: {
-        lineComment: '//',
-        blockComment: ['/*', '*/']
-      },
-      brackets: [
-        ['{', '}'],
-        ['[', ']'],
-        ['(', ')']
-      ],
-      autoClosingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" },
-        { open: '/*', close: '*/' }
-      ],
-      surroundingPairs: [
-        { open: '{', close: '}' },
-        { open: '[', close: ']' },
-        { open: '(', close: ')' },
-        { open: '"', close: '"' },
-        { open: "'", close: "'" }
-      ]
-    })
-
-    // 增强 C/C++ 语法高亮 - 自定义 token 颜色
+    // P3: 先定义主题再应用，避免首次闪烁
     monaco.editor.defineTheme('esp32-dark', {
       base: 'vs-dark',
       inherit: true,
       rules: [
-        // 预处理指令 #include, #define 等
         { token: 'keyword.control.directive', foreground: 'C586C0' },
-        // C/C++ 关键字
         { token: 'keyword', foreground: '569CD6' },
-        // 类型名
         { token: 'type', foreground: '4EC9B0' },
-        // 字符串
         { token: 'string', foreground: 'CE9178' },
-        // 数字
         { token: 'number', foreground: 'B5CEA8' },
-        // 注释
         { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-        // 函数名
         { token: 'entity.name.function', foreground: 'DCDCAA' },
-        // 变量
         { token: 'variable', foreground: '9CDCFE' },
-        // 常量
         { token: 'constant', foreground: '4FC1FF' }
       ],
       colors: {
@@ -168,9 +103,25 @@ function CodeEditor({ value, onChange, editorRef }) {
         'editorBracketMatch.border': '#888888'
       }
     })
-
-    // 应用自定义主题
     monaco.editor.setTheme('esp32-dark')
+
+    // 配置 C/C++ 语言规则
+    const cLangConfig = {
+      comments: { lineComment: '//', blockComment: ['/*', '*/'] },
+      brackets: [['{', '}'], ['[', ']'], ['(', ')']],
+      autoClosingPairs: [
+        { open: '{', close: '}' }, { open: '[', close: ']' },
+        { open: '(', close: ')' }, { open: '"', close: '"' },
+        { open: "'", close: "'" }, { open: '/*', close: '*/' }
+      ],
+      surroundingPairs: [
+        { open: '{', close: '}' }, { open: '[', close: ']' },
+        { open: '(', close: ')' }, { open: '"', close: '"' },
+        { open: "'", close: "'" }
+      ]
+    }
+    monaco.languages.setLanguageConfiguration('c', cLangConfig)
+    monaco.languages.setLanguageConfiguration('cpp', cLangConfig)
   }
 
   /**

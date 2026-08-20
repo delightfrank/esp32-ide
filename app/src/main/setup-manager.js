@@ -383,8 +383,11 @@ function registerSetupIpc(ipcMain, mainWindowGetter) {
     return await checkEnvironment()
   })
 
-  // 开始安装
+  // 开始安装（M3: 并发保护）
   ipcMain.handle('setup-install', async (event, mirror) => {
+    if (setupStatus.running) {
+      return { success: false, error: '安装任务已在进行中' }
+    }
     setupStatus.running = true
     setupStatus.error = null
 
