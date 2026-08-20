@@ -1,0 +1,14 @@
+*.js text eol=lf linguist-language=JavaScript
+*.jsx text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.ini text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.ico binary
+*.png binary
+*.jpg binary
+*.asar binary
