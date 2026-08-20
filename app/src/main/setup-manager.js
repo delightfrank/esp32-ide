@@ -178,14 +178,29 @@ async function checkEnvironment() {
 
   const appDir = getEmbeddedDir()
 
-  // P3: 用异步 spawn 替代 execSync，不阻塞主进程
+  // Async version detection with real timeout + shell:true for .cmd files
   async function getVersion(cmd, args, timeout = 5000) {
     return new Promise((resolve) => {
-      const proc = spawn(cmd, args, { timeout, stdio: ['pipe', 'pipe', 'pipe'] })
+      const proc = spawn(cmd, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+        windowsHide: true
+      })
       let stdout = ''
+      let killed = false
+      const timer = setTimeout(() => {
+        killed = true
+        try { proc.kill('SIGTERM') } catch (e) {}
+      }, timeout)
       proc.stdout.on('data', (d) => { stdout += d.toString() })
-      proc.on('close', () => resolve(stdout.trim()))
-      proc.on('error', () => resolve(null))
+      proc.on('close', () => {
+        clearTimeout(timer)
+        resolve(killed ? null : (stdout.trim() || null))
+      })
+      proc.on('error', () => {
+        clearTimeout(timer)
+        resolve(null)
+      })
     })
   }
 
@@ -202,14 +217,19 @@ async function checkEnvironment() {
     if (ver) result.python.version = ver
   }
 
-  // 检测系统 Python
+  // Detect system Python (Windows: try python3, py -3, python in order)
   if (!result.python.available) {
-    const py3 = process.platform === 'win32' ? 'python' : 'python3'
-    const ver = await getVersion(py3, ['--version'])
-    if (ver) {
-      result.python.available = true
-      result.python.version = ver
-      result.python.path = py3
+    const pyCandidates = process.platform === 'win32'
+      ? [['python3', ['--version']], ['py', ['-3', '--version']], ['python', ['--version']]]
+      : [['python3', ['--version']], ['python', ['--version']]]
+    for (const [cmd, args] of pyCandidates) {
+      const ver = await getVersion(cmd, args)
+      if (ver && !ver.includes('Microsoft')) {
+        result.python.available = true
+        result.python.version = ver
+        result.python.path = cmd
+        break
+      }
     }
   }
 
@@ -226,13 +246,19 @@ async function checkEnvironment() {
     if (ver) result.platformio.version = ver
   }
 
-  // 检测系统 PlatformIO
+  // Detect system PlatformIO
   if (!result.platformio.available) {
-    const ver = await getVersion('pio', ['--version'])
-    if (ver) {
-      result.platformio.available = true
-      result.platformio.version = ver
-      result.platformio.path = 'pio'
+    const pioCandidates = process.platform === 'win32'
+      ? ['pio', 'pio.exe']
+      : ['pio']
+    for (const cmd of pioCandidates) {
+      const ver = await getVersion(cmd, ['--version'])
+      if (ver) {
+        result.platformio.available = true
+        result.platformio.version = ver
+        result.platformio.path = cmd
+        break
+      }
     }
   }
 
