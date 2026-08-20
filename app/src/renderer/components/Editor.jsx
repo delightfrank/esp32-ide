@@ -1,42 +1,15 @@
-/**
- * ESP32 IDE - Monaco Editor 组件
- * 封装 Monaco Editor，配置 C/C++ 语法高亮和暗色主题
- */
 import React, { useEffect, useRef } from 'react'
 import Editor from '@monaco-editor/react'
 import loader from '@monaco-editor/loader'
-import * as monaco from 'monaco-editor'
 
-// 强制使用本地 monaco 包，不走 CDN（国内离线可用）
-loader.config({ monaco })
+// Use local monaco AMD build (node_modules/monaco-editor/min/vs):
+// - No CDN, works offline (China-friendly)
+// - Don't bundle monaco ESM into JS bundle, avoids Vite/Rollup
+//   "Cannot access 'X' before initialization" circular dep crash (white screen root cause)
+// dist/vs is copied by tools/copy-monaco.js during npm run build
+loader.config({ paths: { vs: './vs' } })
 
-// Monaco worker 配置（Vite 构建需要）
-window.MonacoEnvironment = {
-  getWorker: function (_workerId, label) {
-    const getWorkerModule = (moduleUrl) => {
-      return new Worker(new URL(moduleUrl, import.meta.url), { type: 'module' })
-    }
-    switch (label) {
-      case 'json':
-        return getWorkerModule('monaco-editor/esm/vs/language/json/json.worker.js')
-      case 'css':
-      case 'scss':
-      case 'less':
-        return getWorkerModule('monaco-editor/esm/vs/language/css/css.worker.js')
-      case 'html':
-      case 'handlebars':
-      case 'razor':
-        return getWorkerModule('monaco-editor/esm/vs/language/html/html.worker.js')
-      case 'typescript':
-      case 'javascript':
-        return getWorkerModule('monaco-editor/esm/vs/language/typescript/ts.worker.js')
-      default:
-        return getWorkerModule('monaco-editor/esm/vs/editor/editor.worker.js')
-    }
-  }
-}
-
-// Monaco Editor 配置
+// Monaco Editor options
 const editorOptions = {
   fontSize: 14,
   fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
@@ -58,23 +31,18 @@ const editorOptions = {
 }
 
 /**
- * Monaco Editor 组件
- * @param {string} value - 编辑器内容
- * @param {function} onChange - 内容变化回调
- * @param {object} editorRef - 编辑器引用
+ * Monaco Editor component
+ * @param {string} value - editor content
+ * @param {function} onChange - content change callback
+ * @param {object} editorRef - editor reference
  */
 function CodeEditor({ value, onChange, editorRef }) {
   const monacoRef = useRef(null)
 
-  /**
-   * 编辑器创建完成回调
-   * 配置 C/C++ 语言的额外设置
-   */
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor
     monacoRef.current = monaco
 
-    // P3: 先定义主题再应用，避免首次闪烁
     monaco.editor.defineTheme('esp32-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -105,7 +73,6 @@ function CodeEditor({ value, onChange, editorRef }) {
     })
     monaco.editor.setTheme('esp32-dark')
 
-    // 配置 C/C++ 语言规则
     const cLangConfig = {
       comments: { lineComment: '//', blockComment: ['/*', '*/'] },
       brackets: [['{', '}'], ['[', ']'], ['(', ')']],
@@ -124,9 +91,6 @@ function CodeEditor({ value, onChange, editorRef }) {
     monaco.languages.setLanguageConfiguration('cpp', cLangConfig)
   }
 
-  /**
-   * 内容变化处理
-   */
   const handleChange = (value) => {
     onChange?.(value)
   }
@@ -143,7 +107,7 @@ function CodeEditor({ value, onChange, editorRef }) {
         theme="esp32-dark"
         loading={
           <div className="editor-loading">
-            <span>正在加载编辑器...</span>
+            <span>Loading editor...</span>
           </div>
         }
       />
